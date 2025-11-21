@@ -39,4 +39,4 @@ with mcp_client:
     )
     # Run the agent
     prompt = input("Enter a prompt: ")
-    result = agent(prompt)
+    agent(prompt)
