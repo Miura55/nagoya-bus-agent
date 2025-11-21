@@ -4,6 +4,7 @@ from strands.tools.mcp import MCPClient
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+
 SYSTEM_PROMPT = """
 あなたは名古屋の市営バスについての情報を提供するエージェントです。
 以下の要件を満たしてください。
@@ -25,7 +26,6 @@ mcp_client = MCPClient(lambda:stdio_client(
 @tool
 def get_current_time():
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
-
 
 
 with mcp_client:
