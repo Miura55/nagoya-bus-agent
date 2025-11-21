@@ -1,0 +1,9 @@
+[project]
+name = "nagoya-bus-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "strands-agents>=1.17.0",
+]
