@@ -23,6 +23,6 @@ aws configure
 ### エージェントの実行
 以下のコマンドでエージェントを実行します
 
-```shell
+```bash
 uv run main.py
 ```
