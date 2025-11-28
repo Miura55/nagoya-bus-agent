@@ -369,8 +369,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "botocore", extras = ["crt"], specifier = ">=1.41.1" },
-    { name = "strands-agents", specifier = ">=1.17.0" },
-]
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "strands-agents", specifier = ">=1.17.0" },
 ]
