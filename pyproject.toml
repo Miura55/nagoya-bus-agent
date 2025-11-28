@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "botocore[crt]>=1.41.1",
+    "pandas>=2.3.3",
     "strands-agents>=1.17.0",
 ]

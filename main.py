@@ -3,6 +3,7 @@ from strands import Agent, tool
 from strands.tools.mcp import MCPClient
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import pandas as pd
 
 
 SYSTEM_PROMPT = """
@@ -28,10 +29,15 @@ def get_current_time():
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
 
 
+@tool
+def get_bus_stops():
+    df = pd.read_csv("stops.csv")
+    return df.to_dict(orient="records")
+
+
 with mcp_client:
     # Get the tools from the MCP server
-    tools = mcp_client.list_tools_sync() + [get_current_time]
-
+    tools = mcp_client.list_tools_sync() + [get_current_time, get_bus_stops]
     # Create the agent
     agent = Agent(
         tools=tools,
