@@ -30,10 +30,21 @@ def get_current_time():
 
 
 @tool
-def get_bus_stops():
-    df = pd.read_csv("stops.csv")
-    return df.to_dict(orient="records")
+def get_bus_stops(lon: float, lat: float) -> list[dict]:
+    """    Get bus stops near the given longitude and latitude.
 
+    Args:
+        lon (float): _longitude_
+        lat (float): _latitude_
+
+    Returns:
+        list[dict]: List of bus stops with stop_id, stop_name, stop_lon, stop_lat
+    """
+    df = pd.read_csv("stops.csv")
+    # Calculate distance and filter stops within a certain radius (e.g., 0.01 degrees)
+    df['distance'] = ((df['stop_lon'] - lon) ** 2 + (df['stop_lat'] - lat) ** 2) ** 0.5
+    nearby_stops = df[df['distance'] < 0.01]
+    return nearby_stops[['stop_id', 'stop_name', 'stop_lon', 'stop_lat']].to_dict(orient='records')
 
 with mcp_client:
     # Get the tools from the MCP server
