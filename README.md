@@ -42,3 +42,10 @@ export AWS_DEFAULT_REGION=your_aws_region
 ```bash
 uv run main.py
 ```
+
+## 使用データ
+バス停データは以下のURLから取得しています
+- [【名古屋市】市バスGTFS-JPデータ](https://data.bodik.jp/dataset/231002_7109030000_bus-gtfs-jp)
+
+## License
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
