@@ -5,5 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "bedrock-agentcore>=1.4.7",
+    "bedrock-agentcore-starter-toolkit>=0.3.3",
+    "botocore[crt]>=1.42.73",
     "strands-agents>=1.17.0",
+    "streamlit>=1.55.0",
 ]
