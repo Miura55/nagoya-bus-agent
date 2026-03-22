@@ -4,12 +4,12 @@ agents:
     name: nagoya_bus_agent
     language: python
     node_version: '20'
-    entrypoint: /Users/koki/Codes/nagoya-bus-agent/agent/main.py
+    entrypoint: ./agent/main.py
     deployment_type: container
     runtime_type: null
     platform: linux/arm64
     container_runtime: docker
-    source_path: /Users/koki/Codes/nagoya-bus-agent
+    source_path: .
     aws:
       execution_role: arn:aws:iam::842842563143:role/AmazonBedrockAgentCoreSDKRuntime-ap-northeast-1-ddfb601f0e
       execution_role_auto_create: false
@@ -32,7 +32,7 @@ agents:
     bedrock_agentcore:
       agent_id: nagoya_bus_agent-5kxzQ77l0p
       agent_arn: arn:aws:bedrock-agentcore:ap-northeast-1:842842563143:runtime/nagoya_bus_agent-5kxzQ77l0p
-      agent_session_id: a4b853cd-1bb5-4046-b5b7-5c830ece6b29
+      agent_session_id: 869f094a-dbb5-43a4-ba5a-fcd8bd336b6e
     codebuild:
       project_name: bedrock-agentcore-nagoya_bus_agent-builder
       execution_role: arn:aws:iam::842842563143:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-1-ddfb601f0e
