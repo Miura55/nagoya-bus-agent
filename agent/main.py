@@ -31,10 +31,10 @@ SYSTEM_PROMPT = """
 
 mcp_client = MCPClient(lambda:stdio_client(
         StdioServerParameters(
-            command="uvx",
-            args=["nagoya-bus-mcp@latest"]
+            command="nagoya-bus-mcp",
+            args=[]
         )
-    ),
+    )
 )
 
 
