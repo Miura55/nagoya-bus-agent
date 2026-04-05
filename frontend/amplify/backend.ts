@@ -25,3 +25,12 @@ backend.chatAgent.resources.lambda.addToRolePolicy(
     ],
   }),
 );
+
+// Use wildcard resource here to avoid self-referential ARN dependencies that can
+// create circular references with AppSync resolver resources in the same stack.
+backend.chatAgent.resources.lambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['lambda:InvokeFunction'],
+    resources: ['*'],
+  }),
+);

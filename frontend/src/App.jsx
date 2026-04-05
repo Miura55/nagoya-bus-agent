@@ -97,10 +97,23 @@ function ChatWorkspace({ signOut, user }) {
                 msg.id === assistantId ? { ...msg, streaming: false } : msg,
               ),
             )
+            if (chunk?.error) {
+              setErrorMessage(chunk.error)
+            }
+            setIsSending(false)
+            sub.unsubscribe()
           }
         },
         error: (err) => {
           console.error('Streaming subscription error:', err)
+          setErrorMessage('ストリーミングの購読中にエラーが発生しました。')
+          setIsSending(false)
+          setMessages((current) =>
+            current.map((msg) =>
+              msg.id === assistantId ? { ...msg, streaming: false } : msg,
+            ),
+          )
+          sub.unsubscribe()
         },
       })
 
@@ -119,39 +132,19 @@ function ChatWorkspace({ signOut, user }) {
       }
 
       const response = result?.data?.chat ?? result?.data ?? result
-      const reply = response?.reply?.trim()
-
-      if (!reply) {
-        console.error('Unexpected chat response payload:', result)
-        throw new Error('エージェントの応答を解釈できませんでした。')
-      }
 
       if (response?.sessionId) {
         setSessionId(response.sessionId)
       }
-
-      // Finalise the assistant message. If streaming delivered text already,
-      // keep it; otherwise fall back to the full reply from the mutation.
-      setMessages((current) =>
-        current.map((msg) =>
-          msg.id === assistantId
-            ? {
-                ...msg,
-                text: msg.text || reply,
-                streaming: false,
-                traceId: response?.traceId,
-              }
-            : msg,
-        ),
-      )
     } catch (error) {
       const fallback = '現在エージェントに接続できません。数秒おいて再試行してください。'
       setErrorMessage(error instanceof Error ? error.message || fallback : fallback)
       // Remove the empty placeholder if the request failed entirely.
       setMessages((current) => current.filter((msg) => msg.id !== assistantId))
-    } finally {
       setIsSending(false)
       sub.unsubscribe()
+    } finally {
+      // Do not unsubscribe here. Streaming should continue after ACK until done arrives.
     }
   }
 

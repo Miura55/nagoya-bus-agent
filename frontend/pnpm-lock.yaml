@@ -11,6 +11,9 @@ dependencies:
   '@aws-sdk/client-bedrock-agentcore':
     specifier: ^3.1024.0
     version: 3.1024.0
+  '@aws-sdk/client-lambda':
+    specifier: ^3.1024.0
+    version: 3.1024.0
   aws-amplify:
     specifier: ^6.16.3
     version: 6.16.3
@@ -2481,7 +2484,6 @@ packages:
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
-    dev: true
 
   /@aws-sdk/client-personalize-events@3.982.0:
     resolution: {integrity: sha512-JllssIZCPxAgYy4gkIM2e/kXxWT0xQzzZd5y9rRStm0bl5MiLAxzX4q9WhGG7glyB++EuhYskiT1N+DzyM5nTw==}
