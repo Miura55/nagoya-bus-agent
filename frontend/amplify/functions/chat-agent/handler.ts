@@ -134,9 +134,9 @@ export const handler = async (event: any) => {
 
 type ResponseBodyLike =
   | {
-      transformToString?: () => Promise<string>
-      transformToByteArray?: () => Promise<Uint8Array>
-    }
+    transformToString?: () => Promise<string>
+    transformToByteArray?: () => Promise<Uint8Array>
+  }
   | undefined
 
 /**
