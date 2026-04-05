@@ -4,7 +4,7 @@ export const chatAgent = defineFunction({
   name: 'chat-agent',
   entry: './handler.ts',
   resourceGroupName: 'data',
-  timeoutSeconds: 120,
+  timeoutSeconds: 300,
   memoryMB: 1024,
   environment: {
     AGENTCORE_REGION: 'ap-northeast-1',
