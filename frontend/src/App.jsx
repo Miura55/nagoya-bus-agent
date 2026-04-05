@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Authenticator } from '@aws-amplify/ui-react'
-import { generateClient } from 'aws-amplify/api'
+import { generateClient } from 'aws-amplify/data'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
@@ -78,15 +78,10 @@ function ChatWorkspace({ signOut, user }) {
     // Subscribe to streaming chunks before sending the mutation so no
     // early deltas are missed.
     const sub = client
-      .graphql({
-        query: `subscription OnChatChunk($sessionId: String!) {
-          onChatChunk(sessionId: $sessionId) { sessionId delta done }
-        }`,
-        variables: { sessionId },
-      })
+      .subscriptions.onChatChunk({ sessionId })
       .subscribe({
-        next: ({ data }) => {
-          const chunk = data?.onChatChunk
+        next: (event) => {
+          const chunk = event?.data ?? event
           if (chunk?.delta) {
             setMessages((current) =>
               current.map((msg) =>

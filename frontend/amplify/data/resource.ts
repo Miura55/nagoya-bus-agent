@@ -33,6 +33,11 @@ const schema = a.schema({
    * Internal mutation called only by the Lambda to push streaming chunks.
    * Triggering this mutation causes any connected onChatChunk subscription
    * to receive the chunk.
+   *
+   * Amplify requires both an auth rule AND a handler on every custom operation.
+   * Schema-level allow.resource(chatAgent) adds Lambda IAM access on top of
+   * the field-level rule (OR logic), so the Lambda can always call this even
+   * though the default AuthMode is userPool.
    */
   publishChunk: a
     .mutation()
@@ -53,13 +58,17 @@ const schema = a.schema({
     .for(a.ref('publishChunk'))
     .arguments({ sessionId: a.string().required() })
     .authorization((allow) => [allow.authenticated()])
-    .handler(a.handler.function(chatAgent)),
+    .handler(a.handler.custom({ entry: './on-chat-chunk.js' }))
 });
 
-export type Schema = ClientSchema<typeof schema>;
+const schemaWithResourceAccess = schema.authorization((allow) => [
+  allow.resource(chatAgent).to(['mutate']),
+]);
+
+export type Schema = ClientSchema<typeof schemaWithResourceAccess>;
 
 export const data = defineData({
-  schema,
+  schema: schemaWithResourceAccess,
   authorizationModes: {
     defaultAuthorizationMode: 'userPool',
   },

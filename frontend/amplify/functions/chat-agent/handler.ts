@@ -1,9 +1,22 @@
-import { randomUUID, createHash, createHmac } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 
 import {
   BedrockAgentCoreClient,
   InvokeAgentRuntimeCommand,
 } from '@aws-sdk/client-bedrock-agentcore'
+import { getAmplifyDataClientConfig } from '@aws-amplify/backend/function/runtime'
+import { Amplify } from 'aws-amplify'
+import { generateClient } from 'aws-amplify/data'
+import { env } from '$amplify/env/chat-agent'
+
+import type { Schema } from '../../data/resource'
+
+const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(
+  env as unknown as Parameters<typeof getAmplifyDataClientConfig>[0],
+)
+Amplify.configure(resourceConfig, libraryOptions)
+
+const dataClient = generateClient<Schema>()
 
 const agentClient = new BedrockAgentCoreClient({
   region: process.env.AGENTCORE_REGION ?? process.env.AWS_REGION ?? 'ap-northeast-1',
@@ -34,10 +47,6 @@ export const handler = async (event: any) => {
     }
   }
 
-  if (fieldName === 'onChatChunk') {
-    return null
-  }
-
   const prompt = event.arguments?.prompt?.trim()
 
   if (!prompt) {
@@ -55,7 +64,6 @@ export const handler = async (event: any) => {
   const runtimeSessionId = event.arguments.sessionId?.trim() || randomUUID()
   const runtimeArn = process.env.AGENTCORE_RUNTIME_ARN
   const runtimeUserId = extractRuntimeUserId(event.identity)
-  const appsyncUrl = process.env.APPSYNC_GRAPHQL_URL
 
   if (!runtimeArn) {
     throw new Error('AGENTCORE_RUNTIME_ARN is not configured.')
@@ -95,23 +103,15 @@ export const handler = async (event: any) => {
   try {
     for await (const delta of streamResponseDeltas(response.response)) {
       textChunks.push(delta)
-      if (appsyncUrl) {
-        await publishChunk(appsyncUrl, runtimeSessionId, delta, false).catch(
-          (err: unknown) => {
-            console.warn('publishChunk (delta) failed:', err)
-          },
-        )
-      }
+      await publishChunk(runtimeSessionId, delta, false).catch((err: unknown) => {
+        console.warn('publishChunk (delta) failed:', err)
+      })
     }
   } finally {
     // Always signal completion so listeners can clean up.
-    if (appsyncUrl) {
-      await publishChunk(appsyncUrl, runtimeSessionId, undefined, true).catch(
-        (err: unknown) => {
-          console.warn('publishChunk (done) failed:', err)
-        },
-      )
-    }
+    await publishChunk(runtimeSessionId, undefined, true).catch((err: unknown) => {
+      console.warn('publishChunk (done) failed:', err)
+    })
   }
 
   const reply = textChunks.join('').trim()
@@ -206,98 +206,27 @@ function* parseLine(line: string): Generator<string> {
 }
 
 // ---------------------------------------------------------------------------
-// AppSync chunk publishing (IAM SigV4, Node.js built-in crypto only)
+// Chunk publishing through Amplify Data client
 // ---------------------------------------------------------------------------
 
 async function publishChunk(
-  appsyncUrl: string,
   sessionId: string,
   delta: string | undefined,
   done: boolean,
 ): Promise<void> {
-  const region = process.env.AWS_REGION ?? 'ap-northeast-1'
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID ?? ''
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY ?? ''
-  const sessionToken = process.env.AWS_SESSION_TOKEN
-
-  const mutation = `mutation PublishChunk($sessionId: String!, $delta: String, $done: Boolean!) {
-  publishChunk(sessionId: $sessionId, delta: $delta, done: $done) {
-    sessionId delta done
-  }
-}`
-
-  const body = JSON.stringify({
-    query: mutation,
-    variables: { sessionId, delta: delta ?? null, done },
+  const result = await dataClient.mutations.publishChunk({
+    sessionId,
+    delta: delta ?? null,
+    done,
   })
 
-  const url = new URL(appsyncUrl)
-  const now = new Date()
-  const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').replace('Z', '')
-  const dateStamp = amzDate.slice(0, 8)
-
-  // Headers must be sorted by key (lowercase) for canonical form.
-  const headerEntries: [string, string][] = [
-    ['content-type', 'application/json'],
-    ['host', url.hostname],
-    ['x-amz-date', amzDate],
-  ]
-  if (sessionToken) {
-    headerEntries.push(['x-amz-security-token', sessionToken])
+  if (Array.isArray(result.errors) && result.errors.length > 0) {
+    const detail = result.errors
+      .map((entry) => entry?.message)
+      .filter(Boolean)
+      .join(' / ')
+    throw new Error(detail || 'publishChunk failed.')
   }
-  headerEntries.sort(([a], [b]) => a.localeCompare(b))
-
-  const canonicalHeaders =
-    headerEntries.map(([k, v]) => `${k}:${v}`).join('\n') + '\n'
-  const signedHeadersStr = headerEntries.map(([k]) => k).join(';')
-
-  const bodyHash = createHash('sha256').update(body).digest('hex')
-  const canonicalRequest = [
-    'POST',
-    url.pathname,
-    '',
-    canonicalHeaders,
-    signedHeadersStr,
-    bodyHash,
-  ].join('\n')
-
-  const credentialScope = `${dateStamp}/${region}/appsync/aws4_request`
-  const stringToSign = [
-    'AWS4-HMAC-SHA256',
-    amzDate,
-    credentialScope,
-    createHash('sha256').update(canonicalRequest).digest('hex'),
-  ].join('\n')
-
-  const kDate = hmac(`AWS4${secretAccessKey}`, dateStamp)
-  const kRegion = hmac(kDate, region)
-  const kService = hmac(kRegion, 'appsync')
-  const kSigning = hmac(kService, 'aws4_request')
-  const signature = createHmac('sha256', kSigning).update(stringToSign).digest('hex')
-
-  const authorizationHeader = [
-    `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}`,
-    `SignedHeaders=${signedHeadersStr}`,
-    `Signature=${signature}`,
-  ].join(', ')
-
-  const fetchHeaders: Record<string, string> = Object.fromEntries(headerEntries)
-  fetchHeaders['Authorization'] = authorizationHeader
-
-  const fetchResponse = await fetch(appsyncUrl, {
-    method: 'POST',
-    headers: fetchHeaders,
-    body,
-  })
-
-  if (!fetchResponse.ok) {
-    const detail = await fetchResponse.text().catch(() => '')
-    throw new Error(`AppSync publishChunk returned ${fetchResponse.status}: ${detail}`)
-  }
-}
-
-function hmac(key: string | Buffer, data: string): Buffer {
-  return createHmac('sha256', key).update(data).digest()
 }
 
 // ---------------------------------------------------------------------------
