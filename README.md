@@ -55,7 +55,7 @@ uv run agentcore deploy
 
 ```bash
 cd frontend
-npx ampx sandbox
+pnpm ampx:sandbox
 ```
 
 ## 使用データ
