@@ -43,6 +43,21 @@ export AWS_DEFAULT_REGION=your_aws_region
 uv run main.py
 ```
 
+### エージェントのデプロイ
+以下のコマンドでAgent Core Runtimeにデプロイする
+
+```bash
+uv run agentcore deploy
+```
+
+### フロントエンドのバックエンドのデプロイ
+以下のコマンドでデプロイ
+
+```bash
+cd frontend
+npx ampx sandbox
+```
+
 ## 使用データ
 バス停データは以下のURLから取得しています
 - [【名古屋市】市バスGTFS-JPデータ](https://data.bodik.jp/dataset/231002_7109030000_bus-gtfs-jp)
