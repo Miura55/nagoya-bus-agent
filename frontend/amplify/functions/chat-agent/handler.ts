@@ -11,6 +11,10 @@ import { env } from '$amplify/env/chat-agent'
 
 import type { Schema } from '../../data/resource'
 
+// ---------------------------------------------------------------------------
+// Module-level initialization
+// ---------------------------------------------------------------------------
+
 const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(
   env as unknown as Parameters<typeof getAmplifyDataClientConfig>[0],
 )
@@ -22,57 +26,48 @@ const agentClient = new BedrockAgentCoreClient({
   region: process.env.AGENTCORE_REGION ?? process.env.AWS_REGION ?? 'ap-northeast-1',
 })
 
-const INVOKE_TIMEOUT_MS = 1500000
+const INVOKE_TIMEOUT_MS = 1_500_000
+
+// ---------------------------------------------------------------------------
+// Lambda handler
+// ---------------------------------------------------------------------------
 
 export const handler = async (event: any) => {
   const fieldName = (event as { fieldName?: string }).fieldName
 
+  // AppSync resolver passthrough: Lambda is set as the resolver for
+  // publishChunk so that the mutation triggers onChatChunk subscriptions.
+  // Simply echo the arguments back as the resolver result.
   if (fieldName === 'publishChunk') {
-    const args = event.arguments as {
-      sessionId?: string
+    const { sessionId, delta = null, done, error = null } = event.arguments as {
+      sessionId: string
       delta?: string | null
-      done?: boolean
+      done: boolean
       error?: string | null
     }
-
-    if (!args?.sessionId || typeof args.done !== 'boolean') {
-      throw new Error('publishChunk requires sessionId and done.')
-    }
-
-    return {
-      sessionId: args.sessionId,
-      delta: args.delta ?? null,
-      done: args.done,
-      error: args.error ?? null,
-    }
+    return { sessionId, delta, done, error }
   }
 
-  const prompt = event.arguments?.prompt?.trim()
+  if (fieldName === 'healthCheck') {
+    return { reply: 'ok', sessionId: randomUUID(), statusCode: 200 }
+  }
 
+  const prompt = (event.arguments?.prompt as string | undefined)?.trim()
   if (!prompt) {
-    if (fieldName === 'healthCheck') {
-      return {
-        reply: 'ok',
-        sessionId: randomUUID(),
-        statusCode: 200,
-      }
-    }
-
     throw new Error('Prompt must not be empty.')
   }
 
-  const runtimeSessionId = event.arguments.sessionId?.trim() || randomUUID()
   const runtimeArn = process.env.AGENTCORE_RUNTIME_ARN
-  const runtimeUserId = extractRuntimeUserId(event.identity)
-
   if (!runtimeArn) {
     throw new Error('AGENTCORE_RUNTIME_ARN is not configured.')
   }
 
+  const runtimeSessionId = (event.arguments.sessionId as string | undefined)?.trim() || randomUUID()
+  const runtimeUserId = extractRuntimeUserId(event.identity)
+
+  // Invoke the AgentCore runtime with a hard timeout.
   const abortController = new AbortController()
-  const abortTimer = setTimeout(() => {
-    abortController.abort()
-  }, INVOKE_TIMEOUT_MS)
+  const abortTimer = setTimeout(() => abortController.abort(), INVOKE_TIMEOUT_MS)
 
   const response = await agentClient
     .send(
@@ -92,12 +87,10 @@ export const handler = async (event: any) => {
       }
       throw error
     })
-    .finally(() => {
-      clearTimeout(abortTimer)
-    })
+    .finally(() => clearTimeout(abortTimer))
 
-  // Consume the response body as a stream, publishing each text delta to
-  // the AppSync subscription so the frontend can render progressively.
+  // Stream the response body, publishing each text delta to AppSync so the
+  // frontend can render progressively.
   const textChunks: string[] = []
 
   try {
@@ -108,14 +101,13 @@ export const handler = async (event: any) => {
       })
     }
   } finally {
-    // Always signal completion so listeners can clean up.
+    // Always publish the terminal done=true event so subscribers can clean up.
     await publishChunk(runtimeSessionId, undefined, true).catch((err: unknown) => {
       console.warn('publishChunk (done) failed:', err)
     })
   }
 
   const reply = textChunks.join('').trim()
-
   if (!reply) {
     throw new Error('The agent returned an empty response.')
   }
@@ -129,26 +121,21 @@ export const handler = async (event: any) => {
 }
 
 // ---------------------------------------------------------------------------
-// Response body streaming
+// AgentCore response streaming
 // ---------------------------------------------------------------------------
 
-type ResponseBodyLike =
+type ResponseBody =
   | {
-    transformToString?: () => Promise<string>
-    transformToByteArray?: () => Promise<Uint8Array>
-  }
+      transformToString?: () => Promise<string>
+      transformToByteArray?: () => Promise<Uint8Array>
+    }
   | undefined
 
-/**
- * Yields individual text deltas from the Bedrock AgentCore response body.
- *
- * In the Node.js Lambda runtime the body is a Readable stream that
- * implements AsyncIterable, so we iterate it chunk-by-chunk. As a fallback
- * for non-iterable bodies (e.g. Blob) we read the whole body at once.
- */
-async function* streamResponseDeltas(body: ResponseBodyLike): AsyncGenerator<string> {
+/** Yields individual text deltas from the Bedrock AgentCore response body. */
+async function* streamResponseDeltas(body: ResponseBody): AsyncGenerator<string> {
   if (!body) return
 
+  // Node.js Lambda runtime: body is a Readable that implements AsyncIterable.
   if (Symbol.asyncIterator in (body as object)) {
     const stream = body as unknown as AsyncIterable<Uint8Array>
     const decoder = new TextDecoder()
@@ -163,25 +150,22 @@ async function* streamResponseDeltas(body: ResponseBodyLike): AsyncGenerator<str
       }
     }
 
-    // Flush the TextDecoder and process any remaining buffered line.
+    // Flush remaining bytes from the TextDecoder.
     lineBuffer += decoder.decode()
-    if (lineBuffer.trim()) {
-      yield* parseLine(lineBuffer)
-    }
+    if (lineBuffer.trim()) yield* parseLine(lineBuffer)
     return
   }
 
-  // Fallback: read the body all at once then extract deltas.
+  // Fallback: read the body all at once.
   let raw = ''
-  if (typeof (body as { transformToString?: () => Promise<string> }).transformToString === 'function') {
-    raw = await (body as { transformToString: () => Promise<string> }).transformToString()
-  } else if (typeof (body as { transformToByteArray?: () => Promise<Uint8Array> }).transformToByteArray === 'function') {
-    const bytes = await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray()
+  if (typeof (body as { transformToString?(): Promise<string> }).transformToString === 'function') {
+    raw = await (body as { transformToString(): Promise<string> }).transformToString()
+  } else if (typeof (body as { transformToByteArray?(): Promise<Uint8Array> }).transformToByteArray === 'function') {
+    const bytes = await (body as { transformToByteArray(): Promise<Uint8Array> }).transformToByteArray()
     raw = new TextDecoder().decode(bytes)
   }
 
-  const parsed = parseStructuredPayload(raw)
-  for (const text of extractContentBlockDeltaTexts(parsed)) {
+  for (const text of extractContentBlockDeltaTexts(parseStructuredPayload(raw))) {
     yield text
   }
 }
@@ -200,20 +184,14 @@ function* parseLine(line: string): Generator<string> {
     return
   }
 
-  for (const text of extractContentBlockDeltaTexts(parsed)) {
-    yield text
-  }
+  yield* extractContentBlockDeltaTexts(parsed)
 }
 
 // ---------------------------------------------------------------------------
-// Chunk publishing through Amplify Data client
+// Chunk publishing
 // ---------------------------------------------------------------------------
 
-async function publishChunk(
-  sessionId: string,
-  delta: string | undefined,
-  done: boolean,
-): Promise<void> {
+async function publishChunk(sessionId: string, delta: string | undefined, done: boolean): Promise<void> {
   const result = await dataClient.mutations.publishChunk({
     sessionId,
     delta: delta ?? null,
@@ -221,105 +199,85 @@ async function publishChunk(
   })
 
   if (Array.isArray(result.errors) && result.errors.length > 0) {
-    const detail = result.errors
-      .map((entry) => entry?.message)
-      .filter(Boolean)
-      .join(' / ')
+    const detail = result.errors.map((e) => e?.message).filter(Boolean).join(' / ')
     throw new Error(detail || 'publishChunk failed.')
   }
 }
 
 // ---------------------------------------------------------------------------
-// Payload parsing helpers (unchanged from original)
+// Utilities
 // ---------------------------------------------------------------------------
 
-function isAbortError(error: unknown) {
-  if (!error || typeof error !== 'object') {
-    return false
-  }
-
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
   const name = 'name' in error ? error.name : undefined
   const message = 'message' in error ? String(error.message) : ''
-
   return name === 'AbortError' || /aborted|abort/i.test(message)
 }
 
-function parseStructuredPayload(payload: string) {
+/**
+ * Parses a raw payload string into a JSON value or array of JSON values.
+ * Returns the original string if parsing fails completely.
+ */
+function parseStructuredPayload(payload: string): unknown {
   const normalized = payload.trim()
-  if (!normalized) return payload
+  if (!normalized) return normalized
 
   try {
     return JSON.parse(normalized)
   } catch {
     const lines = normalized
       .split(/\r?\n/)
-      .map((line) => {
-        const trimmed = line.trim()
-        return trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed
-      })
+      .map((l) => (l.trim().startsWith('data:') ? l.trim().slice(5).trim() : l.trim()))
       .filter(Boolean)
 
-    if (lines.length === 0) return payload
+    if (lines.length === 0) return normalized
 
-    const parsedLines: unknown[] = []
+    const parsed: unknown[] = []
     for (const line of lines) {
       try {
-        parsedLines.push(JSON.parse(line))
+        parsed.push(JSON.parse(line))
       } catch {
-        return payload
+        return normalized
       }
     }
-
-    return parsedLines
+    return parsed
   }
 }
 
+/**
+ * Recursively extracts text strings from Bedrock contentBlockDelta events.
+ * Structure: { contentBlockDelta: { delta: { text: string } } }
+ */
 function extractContentBlockDeltaTexts(value: unknown): string[] {
   if (Array.isArray(value)) {
-    return value.flatMap((item) => extractContentBlockDeltaTexts(item))
+    return value.flatMap(extractContentBlockDeltaTexts)
   }
-
-  if (!value || typeof value !== 'object') {
-    return []
-  }
+  if (!value || typeof value !== 'object') return []
 
   const record = value as Record<string, unknown>
-  const collected: string[] = []
 
-  const contentBlockDelta = record.contentBlockDelta
-  if (contentBlockDelta && typeof contentBlockDelta === 'object') {
-    const delta = (contentBlockDelta as Record<string, unknown>).delta
+  // Direct hit: this object is a contentBlockDelta event.
+  const cbd = record.contentBlockDelta
+  if (cbd && typeof cbd === 'object') {
+    const delta = (cbd as Record<string, unknown>).delta
     if (delta && typeof delta === 'object') {
       const text = (delta as Record<string, unknown>).text
-      if (typeof text === 'string') {
-        collected.push(text)
-      }
+      if (typeof text === 'string') return [text]
     }
   }
 
-  for (const nestedValue of Object.values(record)) {
-    if (!nestedValue || typeof nestedValue !== 'object') {
-      continue
-    }
-    collected.push(...extractContentBlockDeltaTexts(nestedValue))
-  }
-
-  return collected
+  // Recurse into nested objects.
+  return Object.values(record)
+    .filter((v): v is object => !!v && typeof v === 'object')
+    .flatMap(extractContentBlockDeltaTexts)
 }
 
-function extractRuntimeUserId(identity: unknown) {
-  if (!identity || typeof identity !== 'object') {
-    return undefined
-  }
-
-  if ('sub' in identity && typeof identity.sub === 'string') {
-    return identity.sub
-  }
-
-  if ('username' in identity && typeof identity.username === 'string') {
-    return identity.username
-  }
-
+function extractRuntimeUserId(identity: unknown): string | undefined {
+  if (!identity || typeof identity !== 'object') return undefined
+  if ('sub' in identity && typeof identity.sub === 'string') return identity.sub
+  if ('username' in identity && typeof identity.username === 'string') return identity.username
   return undefined
 }
+
 
