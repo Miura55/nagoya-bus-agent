@@ -155,6 +155,81 @@
   word-break: break-word;
 }
 
+.message__body--markdown {
+  white-space: normal;
+
+  p,
+  ul,
+  ol,
+  pre,
+  blockquote,
+  table {
+    margin: 0;
+  }
+
+  p + p,
+  p + ul,
+  p + ol,
+  ul + p,
+  ol + p,
+  pre + p,
+  p + pre,
+  p + table,
+  table + p,
+  blockquote + p,
+  p + blockquote {
+    margin-top: 10px;
+  }
+
+  ul,
+  ol {
+    padding-left: 1.3em;
+  }
+
+  pre,
+  code {
+    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+  }
+
+  pre {
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--assistant-bg), #000 8%);
+    overflow-x: auto;
+  }
+
+  code {
+    background: color-mix(in oklab, var(--assistant-bg), #000 6%);
+    padding: 0.1em 0.35em;
+    border-radius: 6px;
+  }
+
+  pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+  }
+
+  th,
+  td {
+    border: 1px solid var(--assistant-border);
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  a {
+    color: inherit;
+    text-decoration-thickness: 2px;
+  }
+}
+
 .message__meta {
   margin-top: 10px;
   color: var(--meta-text);

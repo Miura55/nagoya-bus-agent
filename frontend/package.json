@@ -15,11 +15,13 @@
     "node": ">=20.6.0"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-agentcore": "^3.1024.0",
     "@aws-amplify/ui-react": "^6.15.2",
+    "@aws-sdk/client-bedrock-agentcore": "^3.1024.0",
     "aws-amplify": "^6.16.3",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.22.0",

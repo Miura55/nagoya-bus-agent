@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Authenticator } from '@aws-amplify/ui-react'
 import { generateClient } from 'aws-amplify/api'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './App.css'
 
 const client = generateClient()
@@ -154,7 +156,13 @@ function ChatWorkspace({ signOut, user }) {
               <p className="message__role">
                 {message.role === 'assistant' ? 'Agent' : 'You'}
               </p>
-              <p className="message__body">{message.text}</p>
+              {message.role === 'assistant' ? (
+                <div className="message__body message__body--markdown">
+                  <Markdown remarkPlugins={[remarkGfm]}>{message.text}</Markdown>
+                </div>
+              ) : (
+                <p className="message__body">{message.text}</p>
+              )}
               {message.traceId ? (
                 <p className="message__meta">trace {message.traceId}</p>
               ) : null}
