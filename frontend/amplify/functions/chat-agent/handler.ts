@@ -22,7 +22,7 @@ const agentClient = new BedrockAgentCoreClient({
   region: process.env.AGENTCORE_REGION ?? process.env.AWS_REGION ?? 'ap-northeast-1',
 })
 
-const INVOKE_TIMEOUT_MS = 300_000
+const INVOKE_TIMEOUT_MS = 1500000
 
 export const handler = async (event: any) => {
   const fieldName = (event as { fieldName?: string }).fieldName
