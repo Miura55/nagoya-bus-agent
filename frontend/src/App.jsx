@@ -43,6 +43,7 @@ function ChatWorkspace({ signOut, user }) {
   const [isSending, setIsSending] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const endRef = useRef(null)
+  const isComposingRef = useRef(false)
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -112,10 +113,26 @@ function ChatWorkspace({ signOut, user }) {
   }
 
   function handleKeyDown(event) {
+    const nativeEvent = event.nativeEvent
+    const isComposing =
+      isComposingRef.current || nativeEvent?.isComposing || nativeEvent?.keyCode === 229
+
+    if (isComposing) {
+      return
+    }
+
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       void handleSubmit(event)
     }
+  }
+
+  function handleCompositionStart() {
+    isComposingRef.current = true
+  }
+
+  function handleCompositionEnd() {
+    isComposingRef.current = false
   }
 
   const userLabel = user?.signInDetails?.loginId ?? user?.username ?? 'Signed-in user'
@@ -124,10 +141,9 @@ function ChatWorkspace({ signOut, user }) {
     <main className="shell">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Bedrock Agent Core</p>
-          <h1>名古屋バス案内チャット</h1>
+          <h2>名古屋市バス案内チャット</h2>
           <p className="hero-copy">
-            Amplify 認証後に、名古屋市営バスの系統、停留所、行き先を会話形式で確認できます。
+            名古屋市営バスで指定した系統の時刻や運行情報を質問できます
           </p>
         </div>
         <div className="hero-meta">
@@ -142,8 +158,7 @@ function ChatWorkspace({ signOut, user }) {
       <section className="chat-card" aria-busy={isSending}>
         <header className="chat-card__header">
           <div>
-            <h2>Conversation</h2>
-            <p>質問を送ると Agent Core runtime へ中継されます。</p>
+            <h3>Chat</h3>
           </div>
         </header>
 
@@ -192,6 +207,8 @@ function ChatWorkspace({ signOut, user }) {
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={handleKeyDown}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             placeholder="例: 栄から名古屋駅へ行くバスはありますか"
             disabled={isSending}
           />

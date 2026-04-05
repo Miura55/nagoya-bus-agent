@@ -27,6 +27,10 @@
   max-width: 640px;
 }
 
+.hero-panel h1 {
+  font-size: clamp(2.2rem, 4vw, 3.6rem);
+}
+
 .hero-meta {
   display: flex;
   flex-wrap: wrap;

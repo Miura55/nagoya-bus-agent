@@ -1,23 +1,23 @@
 :root {
-  --bg: #f4efe5;
-  --bg-deep: #e8ddd0;
-  --panel-bg: rgba(255, 252, 247, 0.76);
-  --panel-border: rgba(113, 78, 41, 0.14);
-  --panel-shadow: 0 24px 60px rgba(104, 72, 37, 0.14);
-  --heading: #1d160f;
-  --text: #5e4d3c;
-  --muted-text: #816b55;
-  --meta-text: #8b6f55;
-  --accent-strong: #bf5a2b;
-  --accent-contrast: #fff9f2;
-  --pill-bg: #efe0cf;
-  --pill-bg-soft: rgba(191, 90, 43, 0.12);
-  --ghost-bg: rgba(29, 22, 15, 0.06);
-  --assistant-bg: #fff7ef;
-  --assistant-border: rgba(191, 90, 43, 0.16);
-  --user-bg: #1d160f;
-  --user-text: #fff7ef;
-  --input-bg: rgba(255, 255, 255, 0.72);
+  --bg: #eef5ff;
+  --bg-deep: #dce9fb;
+  --panel-bg: rgba(255, 255, 255, 0.92);
+  --panel-border: rgba(37, 99, 235, 0.16);
+  --panel-shadow: 0 24px 60px rgba(30, 64, 175, 0.14);
+  --heading: #0b2a5a;
+  --text: #1f3d6d;
+  --muted-text: #4e6c9a;
+  --meta-text: #5f7ba8;
+  --accent-strong: #1d4ed8;
+  --accent-contrast: #f8fbff;
+  --pill-bg: #dbe9ff;
+  --pill-bg-soft: rgba(29, 78, 216, 0.14);
+  --ghost-bg: rgba(11, 42, 90, 0.06);
+  --assistant-bg: #f3f8ff;
+  --assistant-border: rgba(37, 99, 235, 0.2);
+  --user-bg: #0b3a9a;
+  --user-text: #f3f8ff;
+  --input-bg: #ffffff;
   --error-bg: rgba(167, 32, 32, 0.12);
   --error-text: #7b1f1f;
   --sans: 'Avenir Next', 'Hiragino Sans', 'Yu Gothic', sans-serif;
@@ -26,7 +26,7 @@
   color: var(--text);
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.55), transparent 36%),
-    radial-gradient(circle at top right, rgba(191, 90, 43, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(29, 78, 216, 0.14), transparent 30%),
     linear-gradient(180deg, var(--bg), var(--bg-deep));
   font: 17px/1.55 var(--sans);
   font-synthesis: none;
@@ -47,32 +47,6 @@ body,
 
 body {
   margin: 0;
-}
-
-body::before,
-body::after {
-  content: '';
-  position: fixed;
-  inset: auto;
-  pointer-events: none;
-  border-radius: 999px;
-  filter: blur(12px);
-}
-
-body::before {
-  width: 220px;
-  height: 220px;
-  top: 54px;
-  right: 8vw;
-  background: rgba(191, 90, 43, 0.12);
-}
-
-body::after {
-  width: 180px;
-  height: 180px;
-  bottom: 40px;
-  left: 8vw;
-  background: rgba(94, 77, 60, 0.1);
 }
 
 #root {
