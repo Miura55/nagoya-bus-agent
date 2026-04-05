@@ -8,6 +8,13 @@ const schema = a.schema({
     traceId: a.string(),
     statusCode: a.integer(),
   }),
+  /** Individual text delta published by the Lambda during streaming. */
+  ChatChunk: a.customType({
+    sessionId: a.string().required(),
+    delta: a.string(),
+    done: a.boolean().required(),
+    error: a.string(),
+  }),
   healthCheck: a
     .query()
     .returns(a.ref('ChatResponse'))
@@ -20,6 +27,31 @@ const schema = a.schema({
       sessionId: a.string(),
     })
     .returns(a.ref('ChatResponse'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(chatAgent)),
+  /**
+   * Internal mutation called only by the Lambda to push streaming chunks.
+   * Triggering this mutation causes any connected onChatChunk subscription
+   * to receive the chunk.
+   */
+  publishChunk: a
+    .mutation()
+    .arguments({
+      sessionId: a.string().required(),
+      delta: a.string(),
+      done: a.boolean().required(),
+      error: a.string(),
+    })
+    .returns(a.ref('ChatChunk'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(chatAgent)),
+  /**
+   * Subscription that clients use to receive streaming chunks.
+   */
+  onChatChunk: a
+    .subscription()
+    .for(a.ref('publishChunk'))
+    .arguments({ sessionId: a.string().required() })
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(chatAgent)),
 });

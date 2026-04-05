@@ -140,6 +140,16 @@
   opacity: 0.85;
 }
 
+.streaming-cursor {
+  display: inline-block;
+  animation: blink 0.9s step-start infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
 .message__role,
 .message__meta {
   margin: 0;

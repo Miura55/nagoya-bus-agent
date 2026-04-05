@@ -1,23 +1,43 @@
-import { randomUUID } from 'node:crypto'
-import { TextDecoder } from 'node:util'
+import { randomUUID, createHash, createHmac } from 'node:crypto'
 
 import {
   BedrockAgentCoreClient,
   InvokeAgentRuntimeCommand,
 } from '@aws-sdk/client-bedrock-agentcore'
 
-import type { Schema } from '../../data/resource'
-
-const textDecoder = new TextDecoder()
-
 const agentClient = new BedrockAgentCoreClient({
   region: process.env.AGENTCORE_REGION ?? process.env.AWS_REGION ?? 'ap-northeast-1',
 })
 
-const INVOKE_TIMEOUT_MS = 28_000
+const INVOKE_TIMEOUT_MS = 60_000
 
-export const handler: Schema['chat']['functionHandler'] = async (event) => {
+export const handler = async (event: any) => {
   const fieldName = (event as { fieldName?: string }).fieldName
+
+  if (fieldName === 'publishChunk') {
+    const args = event.arguments as {
+      sessionId?: string
+      delta?: string | null
+      done?: boolean
+      error?: string | null
+    }
+
+    if (!args?.sessionId || typeof args.done !== 'boolean') {
+      throw new Error('publishChunk requires sessionId and done.')
+    }
+
+    return {
+      sessionId: args.sessionId,
+      delta: args.delta ?? null,
+      done: args.done,
+      error: args.error ?? null,
+    }
+  }
+
+  if (fieldName === 'onChatChunk') {
+    return null
+  }
+
   const prompt = event.arguments?.prompt?.trim()
 
   if (!prompt) {
@@ -35,6 +55,7 @@ export const handler: Schema['chat']['functionHandler'] = async (event) => {
   const runtimeSessionId = event.arguments.sessionId?.trim() || randomUUID()
   const runtimeArn = process.env.AGENTCORE_RUNTIME_ARN
   const runtimeUserId = extractRuntimeUserId(event.identity)
+  const appsyncUrl = process.env.APPSYNC_GRAPHQL_URL
 
   if (!runtimeArn) {
     throw new Error('AGENTCORE_RUNTIME_ARN is not configured.')
@@ -67,8 +88,33 @@ export const handler: Schema['chat']['functionHandler'] = async (event) => {
       clearTimeout(abortTimer)
     })
 
-  const rawResponse = await readResponseBody(response.response)
-  const reply = extractReply(rawResponse)
+  // Consume the response body as a stream, publishing each text delta to
+  // the AppSync subscription so the frontend can render progressively.
+  const textChunks: string[] = []
+
+  try {
+    for await (const delta of streamResponseDeltas(response.response)) {
+      textChunks.push(delta)
+      if (appsyncUrl) {
+        await publishChunk(appsyncUrl, runtimeSessionId, delta, false).catch(
+          (err: unknown) => {
+            console.warn('publishChunk (delta) failed:', err)
+          },
+        )
+      }
+    }
+  } finally {
+    // Always signal completion so listeners can clean up.
+    if (appsyncUrl) {
+      await publishChunk(appsyncUrl, runtimeSessionId, undefined, true).catch(
+        (err: unknown) => {
+          console.warn('publishChunk (done) failed:', err)
+        },
+      )
+    }
+  }
+
+  const reply = textChunks.join('').trim()
 
   if (!reply) {
     throw new Error('The agent returned an empty response.')
@@ -82,23 +128,181 @@ export const handler: Schema['chat']['functionHandler'] = async (event) => {
   }
 }
 
-async function readResponseBody(
-  stream: { transformToString?: () => Promise<string>; transformToByteArray?: () => Promise<Uint8Array> } | undefined,
-) {
-  if (!stream) {
-    return ''
+// ---------------------------------------------------------------------------
+// Response body streaming
+// ---------------------------------------------------------------------------
+
+type ResponseBodyLike =
+  | {
+      transformToString?: () => Promise<string>
+      transformToByteArray?: () => Promise<Uint8Array>
+    }
+  | undefined
+
+/**
+ * Yields individual text deltas from the Bedrock AgentCore response body.
+ *
+ * In the Node.js Lambda runtime the body is a Readable stream that
+ * implements AsyncIterable, so we iterate it chunk-by-chunk. As a fallback
+ * for non-iterable bodies (e.g. Blob) we read the whole body at once.
+ */
+async function* streamResponseDeltas(body: ResponseBodyLike): AsyncGenerator<string> {
+  if (!body) return
+
+  if (Symbol.asyncIterator in (body as object)) {
+    const stream = body as unknown as AsyncIterable<Uint8Array>
+    const decoder = new TextDecoder()
+    let lineBuffer = ''
+
+    for await (const chunk of stream) {
+      lineBuffer += decoder.decode(chunk, { stream: true })
+      const lines = lineBuffer.split('\n')
+      lineBuffer = lines.pop() ?? ''
+      for (const line of lines) {
+        yield* parseLine(line)
+      }
+    }
+
+    // Flush the TextDecoder and process any remaining buffered line.
+    lineBuffer += decoder.decode()
+    if (lineBuffer.trim()) {
+      yield* parseLine(lineBuffer)
+    }
+    return
   }
 
-  if (typeof stream.transformToString === 'function') {
-    return stream.transformToString()
+  // Fallback: read the body all at once then extract deltas.
+  let raw = ''
+  if (typeof (body as { transformToString?: () => Promise<string> }).transformToString === 'function') {
+    raw = await (body as { transformToString: () => Promise<string> }).transformToString()
+  } else if (typeof (body as { transformToByteArray?: () => Promise<Uint8Array> }).transformToByteArray === 'function') {
+    const bytes = await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray()
+    raw = new TextDecoder().decode(bytes)
   }
 
-  if (typeof stream.transformToByteArray === 'function') {
-    return textDecoder.decode(await stream.transformToByteArray())
+  const parsed = parseStructuredPayload(raw)
+  for (const text of extractContentBlockDeltaTexts(parsed)) {
+    yield text
   }
-
-  return ''
 }
+
+/** Parse one newline-delimited SSE / JSON line and yield any text deltas. */
+function* parseLine(line: string): Generator<string> {
+  const trimmed = line.trim()
+  if (!trimmed) return
+
+  const jsonStr = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonStr)
+  } catch {
+    return
+  }
+
+  for (const text of extractContentBlockDeltaTexts(parsed)) {
+    yield text
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AppSync chunk publishing (IAM SigV4, Node.js built-in crypto only)
+// ---------------------------------------------------------------------------
+
+async function publishChunk(
+  appsyncUrl: string,
+  sessionId: string,
+  delta: string | undefined,
+  done: boolean,
+): Promise<void> {
+  const region = process.env.AWS_REGION ?? 'ap-northeast-1'
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID ?? ''
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY ?? ''
+  const sessionToken = process.env.AWS_SESSION_TOKEN
+
+  const mutation = `mutation PublishChunk($sessionId: String!, $delta: String, $done: Boolean!) {
+  publishChunk(sessionId: $sessionId, delta: $delta, done: $done) {
+    sessionId delta done
+  }
+}`
+
+  const body = JSON.stringify({
+    query: mutation,
+    variables: { sessionId, delta: delta ?? null, done },
+  })
+
+  const url = new URL(appsyncUrl)
+  const now = new Date()
+  const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').replace('Z', '')
+  const dateStamp = amzDate.slice(0, 8)
+
+  // Headers must be sorted by key (lowercase) for canonical form.
+  const headerEntries: [string, string][] = [
+    ['content-type', 'application/json'],
+    ['host', url.hostname],
+    ['x-amz-date', amzDate],
+  ]
+  if (sessionToken) {
+    headerEntries.push(['x-amz-security-token', sessionToken])
+  }
+  headerEntries.sort(([a], [b]) => a.localeCompare(b))
+
+  const canonicalHeaders =
+    headerEntries.map(([k, v]) => `${k}:${v}`).join('\n') + '\n'
+  const signedHeadersStr = headerEntries.map(([k]) => k).join(';')
+
+  const bodyHash = createHash('sha256').update(body).digest('hex')
+  const canonicalRequest = [
+    'POST',
+    url.pathname,
+    '',
+    canonicalHeaders,
+    signedHeadersStr,
+    bodyHash,
+  ].join('\n')
+
+  const credentialScope = `${dateStamp}/${region}/appsync/aws4_request`
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    amzDate,
+    credentialScope,
+    createHash('sha256').update(canonicalRequest).digest('hex'),
+  ].join('\n')
+
+  const kDate = hmac(`AWS4${secretAccessKey}`, dateStamp)
+  const kRegion = hmac(kDate, region)
+  const kService = hmac(kRegion, 'appsync')
+  const kSigning = hmac(kService, 'aws4_request')
+  const signature = createHmac('sha256', kSigning).update(stringToSign).digest('hex')
+
+  const authorizationHeader = [
+    `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}`,
+    `SignedHeaders=${signedHeadersStr}`,
+    `Signature=${signature}`,
+  ].join(', ')
+
+  const fetchHeaders: Record<string, string> = Object.fromEntries(headerEntries)
+  fetchHeaders['Authorization'] = authorizationHeader
+
+  const fetchResponse = await fetch(appsyncUrl, {
+    method: 'POST',
+    headers: fetchHeaders,
+    body,
+  })
+
+  if (!fetchResponse.ok) {
+    const detail = await fetchResponse.text().catch(() => '')
+    throw new Error(`AppSync publishChunk returned ${fetchResponse.status}: ${detail}`)
+  }
+}
+
+function hmac(key: string | Buffer, data: string): Buffer {
+  return createHmac('sha256', key).update(data).digest()
+}
+
+// ---------------------------------------------------------------------------
+// Payload parsing helpers (unchanged from original)
+// ---------------------------------------------------------------------------
 
 function isAbortError(error: unknown) {
   if (!error || typeof error !== 'object') {
@@ -111,42 +315,24 @@ function isAbortError(error: unknown) {
   return name === 'AbortError' || /aborted|abort/i.test(message)
 }
 
-function extractReply(rawResponse: string) {
-  const normalized = rawResponse.trim()
-
-  if (!normalized) {
-    return ''
-  }
-
-  const parsed = parseStructuredPayload(normalized)
-  const textSegments = extractContentBlockDeltaTexts(parsed)
-
-  if (textSegments.length > 0) {
-    return textSegments.join('').trim()
-  }
-
-  return normalized
-}
-
 function parseStructuredPayload(payload: string) {
+  const normalized = payload.trim()
+  if (!normalized) return payload
+
   try {
-    return JSON.parse(payload)
+    return JSON.parse(normalized)
   } catch {
-    const lines = payload
+    const lines = normalized
       .split(/\r?\n/)
       .map((line) => {
         const trimmed = line.trim()
-        // SSE形式 "data: {...}" のプレフィックスを除去する
         return trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed
       })
       .filter(Boolean)
 
-    if (lines.length === 0) {
-      return payload
-    }
+    if (lines.length === 0) return payload
 
-    const parsedLines = []
-
+    const parsedLines: unknown[] = []
     for (const line of lines) {
       try {
         parsedLines.push(JSON.parse(line))
@@ -207,3 +393,4 @@ function extractRuntimeUserId(identity: unknown) {
 
   return undefined
 }
+

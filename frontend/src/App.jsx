@@ -64,10 +64,50 @@ function ChatWorkspace({ signOut, user }) {
       text: nextPrompt,
     }
 
-    setMessages((current) => [...current, userMessage])
+    // Add the user message and a placeholder assistant message immediately.
+    const assistantId = crypto.randomUUID()
+    setMessages((current) => [
+      ...current,
+      userMessage,
+      { id: assistantId, role: 'assistant', text: '', streaming: true },
+    ])
     setPrompt('')
     setErrorMessage('')
     setIsSending(true)
+
+    // Subscribe to streaming chunks before sending the mutation so no
+    // early deltas are missed.
+    const sub = client
+      .graphql({
+        query: `subscription OnChatChunk($sessionId: String!) {
+          onChatChunk(sessionId: $sessionId) { sessionId delta done }
+        }`,
+        variables: { sessionId },
+      })
+      .subscribe({
+        next: ({ data }) => {
+          const chunk = data?.onChatChunk
+          if (chunk?.delta) {
+            setMessages((current) =>
+              current.map((msg) =>
+                msg.id === assistantId
+                  ? { ...msg, text: msg.text + chunk.delta }
+                  : msg,
+              ),
+            )
+          }
+          if (chunk?.done) {
+            setMessages((current) =>
+              current.map((msg) =>
+                msg.id === assistantId ? { ...msg, streaming: false } : msg,
+              ),
+            )
+          }
+        },
+        error: (err) => {
+          console.error('Streaming subscription error:', err)
+        },
+      })
 
     try {
       const result = await client.mutations.chat({
@@ -95,20 +135,28 @@ function ChatWorkspace({ signOut, user }) {
         setSessionId(response.sessionId)
       }
 
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          text: reply,
-          traceId: response?.traceId,
-        },
-      ])
+      // Finalise the assistant message. If streaming delivered text already,
+      // keep it; otherwise fall back to the full reply from the mutation.
+      setMessages((current) =>
+        current.map((msg) =>
+          msg.id === assistantId
+            ? {
+                ...msg,
+                text: msg.text || reply,
+                streaming: false,
+                traceId: response?.traceId,
+              }
+            : msg,
+        ),
+      )
     } catch (error) {
       const fallback = '現在エージェントに接続できません。数秒おいて再試行してください。'
       setErrorMessage(error instanceof Error ? error.message || fallback : fallback)
+      // Remove the empty placeholder if the request failed entirely.
+      setMessages((current) => current.filter((msg) => msg.id !== assistantId))
     } finally {
       setIsSending(false)
+      sub.unsubscribe()
     }
   }
 
@@ -173,7 +221,13 @@ function ChatWorkspace({ signOut, user }) {
               </p>
               {message.role === 'assistant' ? (
                 <div className="message__body message__body--markdown">
-                  <Markdown remarkPlugins={[remarkGfm]}>{message.text}</Markdown>
+                  {message.text ? (
+                    <Markdown remarkPlugins={[remarkGfm]}>
+                      {message.text + (message.streaming ? '\u258c' : '')}
+                    </Markdown>
+                  ) : message.streaming ? (
+                    <span className="streaming-cursor">{'\u258c'}</span>
+                  ) : null}
                 </div>
               ) : (
                 <p className="message__body">{message.text}</p>
@@ -184,7 +238,7 @@ function ChatWorkspace({ signOut, user }) {
             </article>
           ))}
 
-          {isSending ? (
+          {isSending && !messages.some((m) => m.streaming) ? (
             <article className="message message--assistant message--pending">
               <p className="message__role">Agent</p>
               <p className="message__body">応答を取得しています...</p>
