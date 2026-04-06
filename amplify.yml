@@ -1,5 +1,5 @@
 version: 1
-computeType: BUILD_GENERAL1_LARGE
+computeType: BUILD_GENERAL1_XLARGE
 frontend:
   phases:
     preBuild:
@@ -8,11 +8,11 @@ frontend:
         - export NODE_OPTIONS='--max-old-space-size=12000'
         - corepack enable
         - corepack prepare pnpm@8 --activate
-        # フロントエンドビルドに不要な巨大 CDK 系パッケージを除いてインストール
+        # devDependencies (aws-cdk-lib 等) を除いた本番依存のみインストール
         - cd frontend && rm -rf node_modules
-        - pnpm install --frozen-lockfile
-        # aws-cdk-lib / constructs はビルド不要のため削除してメモリを解放
-        - pnpm remove --no-save aws-cdk-lib constructs @aws-amplify/backend @aws-amplify/backend-cli || true
+        - pnpm install --prod --frozen-lockfile
+        # Vite ビルドに必要なツールのみ追加（CDK 系は含まない）
+        - pnpm add -D vite@^6 @vitejs/plugin-react@^4 typescript esbuild
     build:
       commands:
         - pnpm build
