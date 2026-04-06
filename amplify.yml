@@ -14,11 +14,6 @@ frontend:
       commands:
         # Node.js heap を Large インスタンスの推奨値に設定（pnpm install にも適用）
         - export NODE_OPTIONS='--max-old-space-size=12000'
-        - corepack enable
-        - corepack prepare pnpm@8 --activate
-        # devDependencies (aws-cdk-lib 等) を除いた本番依存のみインストール
-        - cd frontend && rm -rf node_modules
-        - pnpm install --prod --frozen-lockfile
         # Vite ビルドに必要なツールのみ追加（CDK 系は含まない）
         - pnpm add -D vite@^6 @vitejs/plugin-react@^4 typescript esbuild
     build:
