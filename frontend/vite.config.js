@@ -7,12 +7,13 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'aws-sdk': [
-            '@aws-sdk/client-bedrock-agentcore',
-            '@aws-sdk/client-lambda',
-          ],
-          'aws-amplify': ['aws-amplify', '@aws-amplify/ui-react'],
+        manualChunks(id) {
+          if (id.includes('@aws-sdk/client-bedrock-agentcore') || id.includes('@aws-sdk/client-lambda')) {
+            return 'aws-sdk';
+          }
+          if (id.includes('aws-amplify') || id.includes('@aws-amplify')) {
+            return 'aws-amplify';
+          }
         },
       },
     },
