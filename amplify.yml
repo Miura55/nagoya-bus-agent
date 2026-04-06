@@ -6,7 +6,7 @@ frontend:
       commands:
         - corepack enable
         - corepack prepare pnpm@8 --activate
-        - cd frontend && pnpm install --frozen-lockfile
+        - cd frontend && rm -rf node_modules && pnpm install --frozen-lockfile
     build:
       commands:
         - NODE_OPTIONS=--max-old-space-size=7168 pnpm build
