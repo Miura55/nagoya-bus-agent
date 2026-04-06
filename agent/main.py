@@ -32,11 +32,22 @@ SYSTEM_PROMPT = """
 あなたは名古屋の市営バスについての情報を提供するエージェントです。
 以下の要件を満たしてください。
 - ユーザーが入力した内容に対して、名古屋の市バスについての情報を提供してください。
-- 出てきた返答を元に該当する系統の時刻表をテーブル形式で表示してください。カラムは `時`, `平日`, `土曜`, `日曜・休日` とします。
+- バスに関する情報はMCPサーバーから提供されるツールを使用して取得してください。
+- 出てきた返答を元に該当する系統の時刻表をテーブル形式で表示してください。
 - 行き先が指定された場合、その行き先に向かう系統の時刻表、及びその乗り場の位置情報を提供してください。
 - 時刻表に該当する系統の時刻表が存在しない場合は「該当する系統の時刻表が存在しません。」と表示してください。
-- ユーザーが現在地を提供した場合、最寄りのバス停を特定し、そのバス停に関する情報を提供してください。
+- ユーザーが位置情報を提供した場合、最寄りのバス停を特定し、そのバス停に関する情報を提供してください。
+- バス停の位置情報は `get_bus_stops_by_location` ツールを使用して取得してください。
 - ユーザーが特定のバス停に関する情報を求めた場合、そのバス停に関する情報を提供してください。
+
+## 時刻表の例
+以下の形式で `時`で 時間帯、`平日`, `土曜`, `日曜・休日` でそれぞれの時間帯の発車時刻の分を表示してください。
+
+| 時 | 平日 | 土曜 | 日曜・休日 |
+|----|------|------|------------|
+| 6  | 00, 30| 15 | 20|
+| 7  | 00, 30 | 15, 45 | 00, 50 |
+| 8  | 00, 30 | 15, 45 | 20, 50 |
 """
 
 mcp_client = MCPClient(lambda:stdio_client(
@@ -54,7 +65,7 @@ def get_current_time():
 
 
 @tool
-def get_bus_stops(lon: float, lat: float) -> list[dict]:
+def get_bus_stops_by_location(lon: float, lat: float) -> list[dict]:
     """    Get bus stops near the given longitude and latitude.
 
     Args:
@@ -83,7 +94,7 @@ async def entrypoint(payload):
 
     with mcp_client:
         # Get the tools from the MCP server
-        tools = mcp_client.list_tools_sync() + [get_current_time, get_bus_stops]
+        tools = mcp_client.list_tools_sync() + [get_current_time, get_bus_stops_by_location]
 
         # Create the agent
         agent = Agent(
