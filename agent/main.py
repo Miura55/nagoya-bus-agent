@@ -22,7 +22,7 @@ logger = logging.getLogger("strands")
 
 app = BedrockAgentCoreApp()
 bedrock_model = BedrockModel(
-    model_id="jp.amazon.nova-2-lite-v1:0",
+    model_id="apac.amazon.nova-pro-v1:0",
     temperature=0.7,
     max_tokens=4096,
     region_name="ap-northeast-1",

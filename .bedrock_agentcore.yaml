@@ -32,7 +32,7 @@ agents:
     bedrock_agentcore:
       agent_id: nagoya_bus_agent-5kxzQ77l0p
       agent_arn: arn:aws:bedrock-agentcore:ap-northeast-1:842842563143:runtime/nagoya_bus_agent-5kxzQ77l0p
-      agent_session_id: 37da4837-6530-47c3-8c18-ac76aa626564
+      agent_session_id: null
     codebuild:
       project_name: bedrock-agentcore-nagoya_bus_agent-builder
       execution_role: arn:aws:iam::842842563143:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-northeast-1-ddfb601f0e
