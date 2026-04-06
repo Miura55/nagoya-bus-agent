@@ -8,7 +8,7 @@ frontend:
         - cd frontend && pnpm install --frozen-lockfile
     build:
       commands:
-        - pnpm build
+        - NODE_OPTIONS=--max-old-space-size=7168 pnpm build
   artifacts:
     baseDirectory: frontend/dist
     files:
