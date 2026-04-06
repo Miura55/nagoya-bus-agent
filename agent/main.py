@@ -22,7 +22,7 @@ logger = logging.getLogger("strands")
 
 app = BedrockAgentCoreApp()
 bedrock_model = BedrockModel(
-    model_id="apac.amazon.nova-pro-v1:0",
+    model_id="jp.anthropic.claude-sonnet-4-6",
     temperature=0.7,
     max_tokens=4096,
     region_name="ap-northeast-1",
@@ -34,6 +34,7 @@ SYSTEM_PROMPT = """
 - ユーザーが入力した内容に対して、名古屋の市バスについての情報を提供してください。
 - バスに関する情報はMCPサーバーから提供されるツールを使用して取得してください。
 - 出てきた返答を元に該当する系統の時刻表をテーブル形式で表示してください。
+- 必ず系統単位で時刻表は表示してください。
 - 行き先が指定された場合、その行き先に向かう系統の時刻表、及びその乗り場の位置情報を提供してください。
 - 時刻表に該当する系統の時刻表が存在しない場合は「該当する系統の時刻表が存在しません。」と表示してください。
 - ユーザーが位置情報を提供した場合、最寄りのバス停を特定し、そのバス停に関する情報を提供してください。
