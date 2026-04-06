@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from mcp import stdio_client, StdioServerParameters
 from strands import Agent, tool
+from strands.models import BedrockModel
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
@@ -20,6 +21,12 @@ logging.basicConfig(
 logger = logging.getLogger("strands")
 
 app = BedrockAgentCoreApp()
+bedrock_model = BedrockModel(
+    model_id="jp.amazon.nova-2-lite-v1:0",
+    temperature=0.7,
+    max_tokens=4096,
+    region_name="ap-northeast-1",
+)
 
 SYSTEM_PROMPT = """
 あなたは名古屋の市営バスについての情報を提供するエージェントです。
@@ -80,6 +87,7 @@ async def entrypoint(payload):
 
         # Create the agent
         agent = Agent(
+            model=bedrock_model,
             tools=tools,
             system_prompt=SYSTEM_PROMPT
         )

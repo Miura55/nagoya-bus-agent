@@ -40,7 +40,16 @@ export AWS_DEFAULT_REGION=your_aws_region
 以下のコマンドでエージェントを実行します
 
 ```bash
-uv run main.py
+uv run agent/main.py
+```
+
+上記を起動したら以下のCurlコマンドを実行すると出力を確認できる
+
+```bash
+ curl -X POST \
+	 -H "Content-Type: application/json" \
+	 -d '{"prompt": "大須から名古屋駅に向かう系統の時刻を調べてください"}' \
+	 http://localhost:8080/invocations
 ```
 
 ### エージェントのデプロイ
