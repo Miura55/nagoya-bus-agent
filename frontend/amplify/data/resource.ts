@@ -12,7 +12,6 @@ const schema = a.schema({
   ChatChunk: a.customType({
     sessionId: a.string().required(),
     delta: a.string(),
-    eventType: a.string(),
     done: a.boolean().required(),
     error: a.string(),
   }),

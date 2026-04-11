@@ -70,14 +70,13 @@ export const handler = async (event: unknown) => {
   // publishChunk so that the mutation triggers onChatChunk subscriptions.
   // Simply echo the arguments back as the resolver result.
   if (fieldName === 'publishChunk') {
-    const { sessionId, delta = null, eventType = null, done, error = null } = chatEvent.arguments as {
+    const { sessionId, delta = null, done, error = null } = chatEvent.arguments as {
       sessionId: string
       delta?: string | null
-      eventType?: string | null
       done: boolean
       error?: string | null
     }
-    return { sessionId, delta, eventType, done, error }
+    return { sessionId, delta, done, error }
   }
 
   if (fieldName === 'healthCheck') {
@@ -278,12 +277,10 @@ async function publishChunk(
   delta: string | undefined,
   done: boolean,
   error?: string,
-  eventType?: string,
 ): Promise<void> {
   const result = await dataClient.mutations.publishChunk({
     sessionId,
     delta: delta ?? null,
-    eventType: eventType ?? null,
     done,
     error: error ?? null,
   })
@@ -315,13 +312,6 @@ function extractEventText(rawLine: string): string {
   try {
     parsed = JSON.parse(normalized)
   } catch {
-    // Try to handle Python-style dict string: "{'type': 'tool_use_stream', 'current_tool_use': {'name': ...}, ...}"
-    if (normalized.includes("'current_tool_use':")) {
-      const nameMatch = normalized.match(/'name':\s*'([^']+)'/)
-      if (nameMatch && nameMatch[1]) {
-        return `\n\n\`\`\`\n⚒️ Using tool: ${nameMatch[1]}\n\`\`\`\n\n`
-      }
-    }
     return ''
   }
 
@@ -333,6 +323,21 @@ function extractEventText(rawLine: string): string {
 
   if ('event' in eventRecord && eventRecord.event && typeof eventRecord.event === 'object') {
     const eventData = eventRecord.event as Record<string, unknown>
+
+    // Detect tool use start event
+    if ('contentBlockStart' in eventData && eventData.contentBlockStart && typeof eventData.contentBlockStart === 'object') {
+      const contentBlockStart = eventData.contentBlockStart as Record<string, unknown>
+      const start = contentBlockStart.start
+      if (start && typeof start === 'object') {
+        const toolUse = (start as Record<string, unknown>).toolUse
+        if (toolUse && typeof toolUse === 'object') {
+          const toolName = (toolUse as Record<string, unknown>).name
+          if (typeof toolName === 'string') {
+            return `\n\n\`\`\`\n⚒️ Using tool: ${toolName}\n\`\`\`\n\n`
+          }
+        }
+      }
+    }
 
     if ('contentBlockDelta' in eventData && eventData.contentBlockDelta && typeof eventData.contentBlockDelta === 'object') {
       const contentBlockDelta = eventData.contentBlockDelta as Record<string, unknown>
