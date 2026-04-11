@@ -87,7 +87,6 @@ function ChatWorkspace({ signOut, user }) {
         .subscribe({
           next: (event) => {
             const chunk = event?.data ?? event
-            console.debug('Received chunk:', chunk)
 
             if (chunk?.delta) {
               setMessages((current) =>

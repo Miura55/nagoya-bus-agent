@@ -251,9 +251,7 @@ async function* streamResponseEvents(body: ResponseBody): AsyncGenerator<string>
   }
 
   for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    yield trimmed
+    yield* parseLine(line)
   }
 }
 

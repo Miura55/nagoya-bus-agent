@@ -44,7 +44,6 @@ const schema = a.schema({
     .arguments({
       sessionId: a.string().required(),
       delta: a.string(),
-      eventType: a.string(),
       done: a.boolean().required(),
       error: a.string(),
     })
