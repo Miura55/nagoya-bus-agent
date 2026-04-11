@@ -105,10 +105,9 @@ async def entrypoint(payload):
         )
 
         # Run Agent
-        stream_messages= agent.stream_async(user_prompt)
-        async for message in stream_messages:
-            if "event" in message:
-                yield message
+        events = agent.stream_async(user_prompt)
+        async for event in events:
+            yield event
 
 
 if __name__ == "__main__":

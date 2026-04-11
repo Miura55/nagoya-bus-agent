@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import './App.css'
 
 const client = generateClient()
+const ASYNC_ACK_REPLY = '処理を開始しました。回答を順次配信します。'
 
 function App({ configError }) {
   if (configError) {
@@ -77,45 +78,51 @@ function ChatWorkspace({ signOut, user }) {
 
     // Subscribe to streaming chunks before sending the mutation so no
     // early deltas are missed.
-    const sub = client
-      .subscriptions.onChatChunk({ sessionId })
-      .subscribe({
-        next: (event) => {
-          const chunk = event?.data ?? event
-          if (chunk?.delta) {
-            setMessages((current) =>
-              current.map((msg) =>
-                msg.id === assistantId
-                  ? { ...msg, text: msg.text + chunk.delta }
-                  : msg,
-              ),
-            )
-          }
-          if (chunk?.done) {
+    const canSubscribe = typeof client?.subscriptions?.onChatChunk === 'function'
+    let sub = null
+
+    if (canSubscribe) {
+      sub = client
+        .subscriptions.onChatChunk({ sessionId })
+        .subscribe({
+          next: (event) => {
+            const chunk = event?.data ?? event
+
+            if (chunk?.delta) {
+              setMessages((current) =>
+                current.map((msg) =>
+                  msg.id === assistantId
+                    ? { ...msg, text: `${msg.text}${chunk.delta}` }
+                    : msg,
+                ),
+              )
+            }
+            if (chunk?.done) {
+              setMessages((current) =>
+                current.map((msg) =>
+                  msg.id === assistantId ? { ...msg, streaming: false } : msg,
+                ),
+              )
+              if (chunk?.error) {
+                setErrorMessage(chunk.error)
+              }
+              setIsSending(false)
+              sub?.unsubscribe()
+            }
+          },
+          error: (err) => {
+            console.error('Streaming subscription error:', err)
+            setErrorMessage('ストリーミングの購読中にエラーが発生しました。')
+            setIsSending(false)
             setMessages((current) =>
               current.map((msg) =>
                 msg.id === assistantId ? { ...msg, streaming: false } : msg,
               ),
             )
-            if (chunk?.error) {
-              setErrorMessage(chunk.error)
-            }
-            setIsSending(false)
-            sub.unsubscribe()
-          }
-        },
-        error: (err) => {
-          console.error('Streaming subscription error:', err)
-          setErrorMessage('ストリーミングの購読中にエラーが発生しました。')
-          setIsSending(false)
-          setMessages((current) =>
-            current.map((msg) =>
-              msg.id === assistantId ? { ...msg, streaming: false } : msg,
-            ),
-          )
-          sub.unsubscribe()
-        },
-      })
+            sub?.unsubscribe()
+          },
+        })
+    }
 
     try {
       const result = await client.mutations.chat({
@@ -132,9 +139,28 @@ function ChatWorkspace({ signOut, user }) {
       }
 
       const response = result?.data?.chat ?? result?.data ?? result
+      const parsedReply = extractAssistantMessage(response?.reply)
+      const isAsyncAck = response?.statusCode === 202 || parsedReply === ASYNC_ACK_REPLY
 
       if (response?.sessionId) {
         setSessionId(response.sessionId)
+      }
+
+      if (parsedReply && (!canSubscribe || !isAsyncAck)) {
+        setMessages((current) =>
+          current.map((msg) =>
+            msg.id === assistantId
+              ? {
+                  ...msg,
+                  text: parsedReply,
+                  streaming: false,
+                  traceId: response?.traceId,
+                }
+              : msg,
+          ),
+        )
+        setIsSending(false)
+        sub?.unsubscribe()
       }
     } catch (error) {
       const fallback = '現在エージェントに接続できません。数秒おいて再試行してください。'
@@ -142,7 +168,7 @@ function ChatWorkspace({ signOut, user }) {
       // Remove the empty placeholder if the request failed entirely.
       setMessages((current) => current.filter((msg) => msg.id !== assistantId))
       setIsSending(false)
-      sub.unsubscribe()
+      sub?.unsubscribe()
     } finally {
       // Do not unsubscribe here. Streaming should continue after ACK until done arrives.
     }
@@ -264,6 +290,10 @@ function ChatWorkspace({ signOut, user }) {
       </section>
     </main>
   )
+}
+
+function extractAssistantMessage(rawReply) {
+  return typeof rawReply === 'string' ? rawReply.trim() : ''
 }
 
 export default App
