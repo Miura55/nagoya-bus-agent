@@ -87,24 +87,13 @@ function ChatWorkspace({ signOut, user }) {
         .subscribe({
           next: (event) => {
             const chunk = event?.data ?? event
-            if (chunk?.eventType === 'current_tool_use') {
-              setMessages((current) => [
-                ...current,
-                {
-                  id: crypto.randomUUID(),
-                  role: 'assistant',
-                  text: `[tool] ${chunk.delta ?? 'tool called'}`,
-                  isToolEvent: true,
-                },
-              ])
-              return
-            }
+            console.debug('Received chunk:', chunk)
 
             if (chunk?.delta) {
               setMessages((current) =>
                 current.map((msg) =>
                   msg.id === assistantId
-                    ? { ...msg, text: msg.text + chunk.delta }
+                    ? { ...msg, text: `${msg.text}${chunk.delta}` }
                     : msg,
                 ),
               )
@@ -245,10 +234,7 @@ function ChatWorkspace({ signOut, user }) {
               <p className="message__role">
                 {message.role === 'assistant' ? 'Agent' : 'You'}
               </p>
-              {message.isToolEvent ? (
-                <p className="message__body">{message.text}</p>
-              ) : null}
-              {!message.isToolEvent && message.role === 'assistant' ? (
+              {message.role === 'assistant' ? (
                 <div className="message__body message__body--markdown">
                   {message.text ? (
                     <Markdown remarkPlugins={[remarkGfm]}>
@@ -259,7 +245,7 @@ function ChatWorkspace({ signOut, user }) {
                   ) : null}
                 </div>
               ) : (
-                !message.isToolEvent ? <p className="message__body">{message.text}</p> : null
+                <p className="message__body">{message.text}</p>
               )}
               {message.traceId ? (
                 <p className="message__meta">trace {message.traceId}</p>
@@ -308,130 +294,7 @@ function ChatWorkspace({ signOut, user }) {
 }
 
 function extractAssistantMessage(rawReply) {
-  const normalized = typeof rawReply === 'string' ? rawReply.trim() : ''
-
-  if (!normalized) {
-    return ''
-  }
-
-  const parsed = parseStreamPayload(normalized)
-  const chunks = extractTextChunks(parsed)
-
-  if (chunks.length > 0) {
-    return chunks.join('')
-  }
-
-  return normalized
-}
-
-function parseStreamPayload(payload) {
-  try {
-    return JSON.parse(payload)
-  } catch {
-    const lines = payload
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-
-    if (lines.length === 0) {
-      return payload
-    }
-
-    const streamEvents = []
-
-    for (const line of lines) {
-      if (line.startsWith(':')) {
-        continue
-      }
-
-      if (line.startsWith('event:')) {
-        continue
-      }
-
-      const dataLine = line.startsWith('data:') ? line.slice(5).trim() : line
-
-      if (!dataLine || dataLine === '[DONE]') {
-        continue
-      }
-
-      try {
-        streamEvents.push(JSON.parse(dataLine))
-      } catch {
-        return payload
-      }
-    }
-
-    return streamEvents.length > 0 ? streamEvents : payload
-  }
-}
-
-function extractTextChunks(value) {
-  if (typeof value === 'string') {
-    return value ? [value] : []
-  }
-
-  if (Array.isArray(value)) {
-    return value.flatMap((item) => extractTextChunks(item))
-  }
-
-  if (!value || typeof value !== 'object') {
-    return []
-  }
-
-  const record = value
-  const collected = []
-
-  if (typeof record.text === 'string') {
-    collected.push(record.text)
-  }
-
-  if (typeof record.outputText === 'string') {
-    collected.push(record.outputText)
-  }
-
-  const delta = record.delta
-  if (delta && typeof delta === 'object') {
-    if (typeof delta.text === 'string') {
-      collected.push(delta.text)
-    }
-  }
-
-  const contentBlockDelta = record.contentBlockDelta
-  if (contentBlockDelta && typeof contentBlockDelta === 'object') {
-    const blockDelta = contentBlockDelta.delta
-    if (blockDelta && typeof blockDelta === 'object' && typeof blockDelta.text === 'string') {
-      collected.push(blockDelta.text)
-    }
-  }
-
-  const content = record.content
-  if (Array.isArray(content)) {
-    for (const item of content) {
-      if (item && typeof item === 'object' && typeof item.text === 'string') {
-        collected.push(item.text)
-      }
-    }
-  }
-
-  for (const [key, nestedValue] of Object.entries(record)) {
-    if (
-      key === 'text' ||
-      key === 'outputText' ||
-      key === 'delta' ||
-      key === 'contentBlockDelta' ||
-      key === 'content'
-    ) {
-      continue
-    }
-
-    if (!nestedValue || typeof nestedValue !== 'object') {
-      continue
-    }
-
-    collected.push(...extractTextChunks(nestedValue))
-  }
-
-  return collected
+  return typeof rawReply === 'string' ? rawReply.trim() : ''
 }
 
 export default App

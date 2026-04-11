@@ -53,11 +53,6 @@ type AsyncChatTaskEvent = {
   runtimeUserId?: string
 }
 
-type StreamChunk = {
-  delta?: string
-  eventType?: string
-}
-
 // ---------------------------------------------------------------------------
 // Lambda handler
 // ---------------------------------------------------------------------------
@@ -175,13 +170,14 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
     const textChunks: string[] = []
 
     try {
-      for await (const chunk of streamResponseDeltas(response.response)) {
-        // if (chunk.delta && chunk.eventType !== 'current_tool_use') {
-        if (chunk.delta) {
-          textChunks.push(chunk.delta)
+      for await (const eventText of streamResponseEvents(response.response)) {
+        if (!eventText) {
+          continue
         }
 
-        await publishChunk(taskEvent.sessionId, chunk.delta, false, undefined, chunk.eventType).catch((err: unknown) => {
+        textChunks.push(eventText)
+
+        await publishChunk(taskEvent.sessionId, eventText, false).catch((err: unknown) => {
           console.warn('publishChunk (delta) failed:', err)
         })
       }
@@ -221,8 +217,8 @@ type ResponseBody =
     }
   | undefined
 
-/** Yields individual text deltas from the Bedrock AgentCore response body. */
-async function* streamResponseDeltas(body: ResponseBody): AsyncGenerator<StreamChunk> {
+/** Yields raw stream event lines from the Bedrock AgentCore response body. */
+async function* streamResponseEvents(body: ResponseBody): AsyncGenerator<string> {
   if (!body) return
 
   // Node.js Lambda runtime: body is a Readable that implements AsyncIterable.
@@ -255,26 +251,22 @@ async function* streamResponseDeltas(body: ResponseBody): AsyncGenerator<StreamC
     raw = new TextDecoder().decode(bytes)
   }
 
-  for (const chunk of extractStreamChunks(parseStructuredPayload(raw))) {
-    yield chunk
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    yield trimmed
   }
 }
 
-/** Parse one newline-delimited SSE / JSON line and yield any text deltas. */
-function* parseLine(line: string): Generator<StreamChunk> {
+/** Parse one newline-delimited SSE / JSON line and convert it to display text. */
+function* parseLine(line: string): Generator<string> {
   const trimmed = line.trim()
   if (!trimmed) return
 
-  const jsonStr = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(jsonStr)
-  } catch {
-    return
+  const text = extractEventText(trimmed)
+  if (text) {
+    yield text
   }
-
-  yield* extractStreamChunks(parsed)
 }
 
 // ---------------------------------------------------------------------------
@@ -313,102 +305,52 @@ function isAbortError(error: unknown): boolean {
   return name === 'AbortError' || /aborted|abort/i.test(message)
 }
 
-/**
- * Parses a raw payload string into a JSON value or array of JSON values.
- * Returns the original string if parsing fails completely.
- */
-function parseStructuredPayload(payload: string): unknown {
-  const normalized = payload.trim()
-  if (!normalized) return normalized
+function extractEventText(rawLine: string): string {
+  const normalized = rawLine.startsWith('data:') ? rawLine.slice(5).trim() : rawLine
+  if (!normalized || normalized === '[DONE]') {
+    return ''
+  }
 
+  let parsed: unknown
   try {
-    return JSON.parse(normalized)
+    parsed = JSON.parse(normalized)
   } catch {
-    const lines = normalized
-      .split(/\r?\n/)
-      .map((l) => (l.trim().startsWith('data:') ? l.trim().slice(5).trim() : l.trim()))
-      .filter(Boolean)
-
-    if (lines.length === 0) return normalized
-
-    const parsed: unknown[] = []
-    for (const line of lines) {
-      try {
-        parsed.push(JSON.parse(line))
-      } catch {
-        return normalized
+    // Try to handle Python-style dict string: "{'type': 'tool_use_stream', 'current_tool_use': {'name': ...}, ...}"
+    if (normalized.includes("'current_tool_use':")) {
+      const nameMatch = normalized.match(/'name':\s*'([^']+)'/)
+      if (nameMatch && nameMatch[1]) {
+        return `\n\n\`\`\`\n⚒️ Using tool: ${nameMatch[1]}\n\`\`\`\n\n`
       }
     }
-    return parsed
+    return ''
   }
-}
 
-/**
- * Recursively extracts text strings from Bedrock contentBlockDelta events.
- * Structure: { contentBlockDelta: { delta: { text: string } } }
- */
-function extractContentBlockDeltaTexts(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.flatMap(extractContentBlockDeltaTexts)
+  if (!parsed || typeof parsed !== 'object') {
+    return ''
   }
-  if (!value || typeof value !== 'object') return []
 
-  const record = value as Record<string, unknown>
+  const eventRecord = parsed as Record<string, unknown>
 
-  // Direct hit: this object is a contentBlockDelta event.
-  const cbd = record.contentBlockDelta
-  if (cbd && typeof cbd === 'object') {
-    const delta = (cbd as Record<string, unknown>).delta
-    if (delta && typeof delta === 'object') {
-      const text = (delta as Record<string, unknown>).text
-      if (typeof text === 'string') return [text]
+  if ('event' in eventRecord && eventRecord.event && typeof eventRecord.event === 'object') {
+    const eventData = eventRecord.event as Record<string, unknown>
+
+    if ('contentBlockDelta' in eventData && eventData.contentBlockDelta && typeof eventData.contentBlockDelta === 'object') {
+      const contentBlockDelta = eventData.contentBlockDelta as Record<string, unknown>
+      const delta = contentBlockDelta.delta
+      if (delta && typeof delta === 'object') {
+        const text = (delta as Record<string, unknown>).text
+        if (typeof text === 'string') {
+          return text
+        }
+      }
+    }
+
+    if (typeof eventData.text === 'string') {
+      return eventData.text
     }
   }
 
-  // Recurse into nested objects.
-  return Object.values(record)
-    .filter((v): v is object => !!v && typeof v === 'object')
-    .flatMap(extractContentBlockDeltaTexts)
-}
-
-function extractStreamChunks(value: unknown): StreamChunk[] {
-  const chunks: StreamChunk[] = []
-  const toolUseName = extractCurrentToolUseName(value)
-
-  if (toolUseName) {
-    chunks.push({
-      delta: toolUseName,
-      eventType: 'current_tool_use',
-    })
-  }
-
-  for (const text of extractContentBlockDeltaTexts(value)) {
-    chunks.push({ delta: text })
-  }
-
-  return chunks
-}
-
-function extractCurrentToolUseName(value: unknown): string | undefined {
-  if (!value || typeof value !== 'object') return undefined
-
-  const record = value as Record<string, unknown>
-  const currentToolUse = record.current_tool_use
-  if (!currentToolUse) return undefined
-
-  if (typeof currentToolUse === 'string') {
-    return currentToolUse
-  }
-
-  if (typeof currentToolUse === 'object') {
-    const toolRecord = currentToolUse as Record<string, unknown>
-    if (typeof toolRecord.name === 'string') return toolRecord.name
-    if (typeof toolRecord.tool_name === 'string') return toolRecord.tool_name
-    if (typeof toolRecord.toolName === 'string') return toolRecord.toolName
-    return JSON.stringify(currentToolUse)
-  }
-
-  return String(currentToolUse)
+  return ''
 }
 
 function extractRuntimeUserId(identity: unknown): string | undefined {
