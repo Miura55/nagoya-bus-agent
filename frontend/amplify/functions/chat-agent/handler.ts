@@ -53,6 +53,11 @@ type AsyncChatTaskEvent = {
   runtimeUserId?: string
 }
 
+type StreamChunk = {
+  delta?: string
+  eventType?: string
+}
+
 // ---------------------------------------------------------------------------
 // Lambda handler
 // ---------------------------------------------------------------------------
@@ -70,13 +75,14 @@ export const handler = async (event: unknown) => {
   // publishChunk so that the mutation triggers onChatChunk subscriptions.
   // Simply echo the arguments back as the resolver result.
   if (fieldName === 'publishChunk') {
-    const { sessionId, delta = null, done, error = null } = chatEvent.arguments as {
+    const { sessionId, delta = null, eventType = null, done, error = null } = chatEvent.arguments as {
       sessionId: string
       delta?: string | null
+      eventType?: string | null
       done: boolean
       error?: string | null
     }
-    return { sessionId, delta, done, error }
+    return { sessionId, delta, eventType, done, error }
   }
 
   if (fieldName === 'healthCheck') {
@@ -169,9 +175,13 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
     const textChunks: string[] = []
 
     try {
-      for await (const delta of streamResponseDeltas(response.response)) {
-        textChunks.push(delta)
-        await publishChunk(taskEvent.sessionId, delta, false).catch((err: unknown) => {
+      for await (const chunk of streamResponseDeltas(response.response)) {
+        // if (chunk.delta && chunk.eventType !== 'current_tool_use') {
+        if (chunk.delta) {
+          textChunks.push(chunk.delta)
+        }
+
+        await publishChunk(taskEvent.sessionId, chunk.delta, false, undefined, chunk.eventType).catch((err: unknown) => {
           console.warn('publishChunk (delta) failed:', err)
         })
       }
@@ -212,7 +222,7 @@ type ResponseBody =
   | undefined
 
 /** Yields individual text deltas from the Bedrock AgentCore response body. */
-async function* streamResponseDeltas(body: ResponseBody): AsyncGenerator<string> {
+async function* streamResponseDeltas(body: ResponseBody): AsyncGenerator<StreamChunk> {
   if (!body) return
 
   // Node.js Lambda runtime: body is a Readable that implements AsyncIterable.
@@ -245,13 +255,13 @@ async function* streamResponseDeltas(body: ResponseBody): AsyncGenerator<string>
     raw = new TextDecoder().decode(bytes)
   }
 
-  for (const text of extractContentBlockDeltaTexts(parseStructuredPayload(raw))) {
-    yield text
+  for (const chunk of extractStreamChunks(parseStructuredPayload(raw))) {
+    yield chunk
   }
 }
 
 /** Parse one newline-delimited SSE / JSON line and yield any text deltas. */
-function* parseLine(line: string): Generator<string> {
+function* parseLine(line: string): Generator<StreamChunk> {
   const trimmed = line.trim()
   if (!trimmed) return
 
@@ -264,7 +274,7 @@ function* parseLine(line: string): Generator<string> {
     return
   }
 
-  yield* extractContentBlockDeltaTexts(parsed)
+  yield* extractStreamChunks(parsed)
 }
 
 // ---------------------------------------------------------------------------
@@ -276,10 +286,12 @@ async function publishChunk(
   delta: string | undefined,
   done: boolean,
   error?: string,
+  eventType?: string,
 ): Promise<void> {
   const result = await dataClient.mutations.publishChunk({
     sessionId,
     delta: delta ?? null,
+    eventType: eventType ?? null,
     done,
     error: error ?? null,
   })
@@ -357,6 +369,46 @@ function extractContentBlockDeltaTexts(value: unknown): string[] {
   return Object.values(record)
     .filter((v): v is object => !!v && typeof v === 'object')
     .flatMap(extractContentBlockDeltaTexts)
+}
+
+function extractStreamChunks(value: unknown): StreamChunk[] {
+  const chunks: StreamChunk[] = []
+  const toolUseName = extractCurrentToolUseName(value)
+
+  if (toolUseName) {
+    chunks.push({
+      delta: toolUseName,
+      eventType: 'current_tool_use',
+    })
+  }
+
+  for (const text of extractContentBlockDeltaTexts(value)) {
+    chunks.push({ delta: text })
+  }
+
+  return chunks
+}
+
+function extractCurrentToolUseName(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  const currentToolUse = record.current_tool_use
+  if (!currentToolUse) return undefined
+
+  if (typeof currentToolUse === 'string') {
+    return currentToolUse
+  }
+
+  if (typeof currentToolUse === 'object') {
+    const toolRecord = currentToolUse as Record<string, unknown>
+    if (typeof toolRecord.name === 'string') return toolRecord.name
+    if (typeof toolRecord.tool_name === 'string') return toolRecord.tool_name
+    if (typeof toolRecord.toolName === 'string') return toolRecord.toolName
+    return JSON.stringify(currentToolUse)
+  }
+
+  return String(currentToolUse)
 }
 
 function extractRuntimeUserId(identity: unknown): string | undefined {
