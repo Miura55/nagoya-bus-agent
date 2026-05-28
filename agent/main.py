@@ -11,6 +11,9 @@ from strands import Agent, tool
 from strands.models import BedrockModel
 from strands.tools.mcp import MCPClient
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from bedrock_agentcore.runtime.context import BedrockAgentCoreContext
+from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
+from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
 
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -19,6 +22,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s - %(message)s",
 )
 logger = logging.getLogger("strands")
+
+MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
+REGION = os.getenv("AWS_REGION", "ap-northeast-1")
 
 app = BedrockAgentCoreApp()
 bedrock_model = BedrockModel(
@@ -93,21 +99,39 @@ async def entrypoint(payload):
     logger.info("Received payload: %s", payload)
     user_prompt = payload.get("prompt", "")
 
+    session_id = BedrockAgentCoreContext.get_session_id() or "default"
+    actor_id = payload.get("actor_id", session_id)
+
     with mcp_client:
-        # Get the tools from the MCP server
         tools = mcp_client.list_tools_sync() + [get_current_time, get_bus_stops_by_location]
 
-        # Create the agent
-        agent = Agent(
-            model=bedrock_model,
-            tools=tools,
-            system_prompt=SYSTEM_PROMPT
-        )
+        session_manager = None
+        if MEMORY_ID:
+            memory_config = AgentCoreMemoryConfig(
+                memory_id=MEMORY_ID,
+                session_id=session_id,
+                actor_id=actor_id,
+            )
+            session_manager = AgentCoreMemorySessionManager(
+                agentcore_memory_config=memory_config,
+                region_name=REGION,
+            )
+            logger.info("Memory enabled: session_id=%s actor_id=%s", session_id, actor_id)
 
-        # Run Agent
-        events = agent.stream_async(user_prompt)
-        async for event in events:
-            yield event
+        try:
+            agent = Agent(
+                model=bedrock_model,
+                tools=tools,
+                system_prompt=SYSTEM_PROMPT,
+                session_manager=session_manager,
+            )
+
+            events = agent.stream_async(user_prompt)
+            async for event in events:
+                yield event
+        finally:
+            if session_manager:
+                session_manager.close()
 
 
 if __name__ == "__main__":
