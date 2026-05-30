@@ -7,8 +7,7 @@ ENV UV_SYSTEM_PYTHON=1 \
     PYTHONUNBUFFERED=1 \
     DOCKER_CONTAINER=1 \
     AWS_REGION=ap-northeast-1 \
-    AWS_DEFAULT_REGION=ap-northeast-1 \
-    BEDROCK_AGENTCORE_MEMORY_ID=nagoya_bus_agent_mem-RuR7TxH05s
+    AWS_DEFAULT_REGION=ap-northeast-1
 
 COPY . .
 

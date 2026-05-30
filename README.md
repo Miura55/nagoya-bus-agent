@@ -5,6 +5,8 @@
 ## Require
 - AWS CLI
 - uv
+- Node.js 20+ / npm（インフラの CDK デプロイ用）
+- Docker（`buildx` による linux/arm64 ビルドに対応していること）
 
 ## Install
 
@@ -52,19 +54,35 @@ uv run agent/main.py
 	 http://localhost:8080/invocations
 ```
 
-### エージェントのデプロイ
-以下のコマンドでAgent Core Runtimeにデプロイする
+### エージェントのデプロイ（CDK）
+エージェント（Bedrock AgentCore Runtime / Memory / IAM ロール / ECR）は CDK アプリ
+（`infra/`）で管理する。アカウントID・リージョンはソースに埋め込まず、デプロイ実行時の
+AWS 認証情報（`CDK_DEFAULT_ACCOUNT` / `CDK_DEFAULT_REGION`）から解決される。
 
 ```bash
-uv run agentcore deploy
+cd infra
+npm install
+
+# 初回のみ: 対象アカウント/リージョンを CDK bootstrap
+npx cdk bootstrap
+
+# デプロイ（ローカルで linux/arm64 のコンテナイメージをビルドして ECR へ push）
+npx cdk deploy
 ```
 
+デプロイすると Runtime ARN が SSM パラメータ `/nagoya-bus-agent/runtime-arn` に書き出され、
+フロントエンド（Amplify）はこれを参照する。`CfnOutput` でも ARN / Runtime ID / Memory ID を出力する。
+
+> **NOTE:** 旧 AgentCore CLI（`.bedrock_agentcore.yaml`）で作成済みの Runtime と Runtime 名
+> （`nagoya_bus_agent`）が競合する場合は、旧 Runtime を削除してから `cdk deploy` すること。
+
 ### フロントエンドのバックエンドのデプロイ
-以下のコマンドでデプロイ
+Runtime ARN は SSM 経由で解決されるため、先に `infra` をデプロイしておくこと。
 
 ```bash
 cd frontend
-pnpm ampx:sandbox
+pnpm ampx:sandbox   # 開発サンドボックス
+pnpm ampx:deploy    # 本番（pipeline-deploy --branch main）
 ```
 
 ## 使用データ
