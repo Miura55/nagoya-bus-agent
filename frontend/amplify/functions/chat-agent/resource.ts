@@ -8,7 +8,8 @@ export const chatAgent = defineFunction({
   memoryMB: 1024,
   environment: {
     AGENTCORE_REGION: 'ap-northeast-1',
-    AGENTCORE_RUNTIME_ARN:
-      'arn:aws:bedrock-agentcore:ap-northeast-1:842842563143:runtime/nagoya_bus_agent-5kxzQ77l0p',
+    // AGENTCORE_RUNTIME_ARN は backend.ts で SSM パラメータ
+    // (/nagoya-bus-agent/runtime-arn) から解決して注入する。
+    // ARN/アカウントID をソースに埋め込まないため、ここには記載しない。
   },
 })

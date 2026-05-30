@@ -71,6 +71,7 @@ tests/
 
 # Monorepo directories
 cdk/
+infra/
 terraform/
 mcp/lambda/
 

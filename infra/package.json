@@ -1,0 +1,26 @@
+{
+  "name": "nagoya-bus-agent-infra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CDK app that provisions the Nagoya Bus Agent on Bedrock AgentCore Runtime",
+  "bin": {
+    "infra": "bin/app.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "aws-cdk": "^2.1027.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.238.0",
+    "constructs": "^10.4.0"
+  }
+}

@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# AgentCore CLI (旧構成。CDK へ移行したため再生成させない / アカウントIDを含むためコミットしない)
+.bedrock_agentcore.yaml
+.bedrock_agentcore/
+
+# CDK
+infra/node_modules/
+infra/cdk.out/
