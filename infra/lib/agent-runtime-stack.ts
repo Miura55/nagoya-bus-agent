@@ -151,7 +151,9 @@ export class AgentRuntimeStack extends cdk.Stack {
       },
       protocolConfiguration: 'HTTP',
       environmentVariables: {
-        AGENT_MEMORY_ID: memory.attrMemoryId,
+        // agent/main.py は BEDROCK_AGENTCORE_MEMORY_ID を読み、CDK 管理の Memory を使う。
+        // 旧CLI製 Memory ID を Dockerfile にハードコードしていたが、それは削除した。
+        BEDROCK_AGENTCORE_MEMORY_ID: memory.attrMemoryId,
       },
     });
     runtime.node.addDependency(role);
