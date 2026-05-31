@@ -152,7 +152,14 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
           accept: 'application/json',
           runtimeSessionId: taskEvent.sessionId,
           runtimeUserId: taskEvent.runtimeUserId,
-          payload: new TextEncoder().encode(JSON.stringify({ prompt: taskEvent.prompt })),
+          payload: new TextEncoder().encode(
+            JSON.stringify({
+              prompt: taskEvent.prompt,
+              // メモリを「ユーザー単位」で分離するため Cognito sub を actor_id として渡す。
+              // 未取得時はエージェント側で session_id にフォールバックする。
+              ...(taskEvent.runtimeUserId ? { actor_id: taskEvent.runtimeUserId } : {}),
+            }),
+          ),
         }),
         { abortSignal: abortController.signal },
       )

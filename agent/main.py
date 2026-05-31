@@ -100,7 +100,9 @@ async def entrypoint(payload):
     user_prompt = payload.get("prompt", "")
 
     session_id = BedrockAgentCoreContext.get_session_id() or "default"
-    actor_id = payload.get("actor_id", session_id)
+    # actor_id は呼び出し元(Lambda)が渡す Cognito sub を優先し、ユーザー単位で記憶を分離する。
+    # 渡されない/空の場合は session_id にフォールバック(従来挙動)。
+    actor_id = payload.get("actor_id") or session_id
 
     with mcp_client:
         tools = mcp_client.list_tools_sync() + [get_current_time, get_bus_stops_by_location]
