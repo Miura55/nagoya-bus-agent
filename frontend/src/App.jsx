@@ -40,7 +40,18 @@ function ChatWorkspace({ signOut, user }) {
     },
   ])
   const [prompt, setPrompt] = useState('')
-  const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
+  // 会話の記憶(AgentCore Memory)はこの sessionId 単位で引き継がれる。
+  // リロードやタブ再オープンで会話が途切れないよう localStorage に永続化する。
+  const sessionStorageKey = `nagoya-bus-session-id:${user?.userId ?? 'anon'}`
+  const [sessionId, setSessionId] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(sessionStorageKey)
+      if (saved) return saved
+    } catch {
+      // localStorage が使えない環境では都度生成にフォールバック
+    }
+    return crypto.randomUUID()
+  })
   const [isSending, setIsSending] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const endRef = useRef(null)
@@ -49,6 +60,15 @@ function ChatWorkspace({ signOut, user }) {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, isSending])
+
+  // sessionId が変わるたびに永続化(初回生成・サーバー返却値での更新の両方をカバー)。
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(sessionStorageKey, sessionId)
+    } catch {
+      // 永続化できない環境は無視(メモリ上のみで継続)
+    }
+  }, [sessionId, sessionStorageKey])
 
   async function handleSubmit(event) {
     event.preventDefault()
