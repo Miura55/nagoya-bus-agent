@@ -13,12 +13,23 @@
 
 `infra/` の CDK が管理するリソースとデプロイフローの構成図です。
 
-![システム構成図](./architecture.png)
+![エージェント側構成図](./architecture.png)
 
-編集可能なソースは [architecture.drawio](./architecture.drawio)（draw.io / diagrams.net で編集可能。
-1 ページ目がエージェント側インフラ、2 ページ目「全体構成図」がフロントエンド込みの全体像）。
+## フロントエンド側の構成図（Amplify Gen2）
+
+`frontend/amplify/` の Amplify Gen2 が管理するリソースにフォーカスした構成図です。
+①〜⑥の番号はストリーミング応答の流れ（chat mutation → Lambda 起動 → 自己 Invoke で非同期化 →
+InvokeAgentRuntime → publishChunk → onChatChunk 配信）を表します。
+
+![フロントエンド側構成図](./architecture-frontend.png)
+
+## 図の編集について
+
+編集可能なソースは [architecture.drawio](./architecture.drawio)（draw.io / diagrams.net で編集可能）。
+ページ構成は 1 ページ目がエージェント側インフラ、2 ページ目「全体構成図」がフロントエンド込みの全体像、
+3 ページ目「フロントエンド構成図」が Amplify Gen2 側の詳細。
 図を更新した場合は draw.io から対応するページを PNG エクスポートして
-`architecture.png` / `architecture-full.png` を差し替えてください。
+`architecture.png` / `architecture-full.png` / `architecture-frontend.png` を差し替えてください。
 
 ## リソース関係の詳細（Mermaid）
 
