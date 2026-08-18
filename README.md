@@ -4,11 +4,13 @@
 
 ## Architecture
 
-エージェント側インフラ（`infra/` の CDK で管理）の構成図です。
+フロントエンド（`frontend/amplify/` の Amplify Gen2）とエージェント（`infra/` の CDK）を
+合わせた全体構成図です。実線は実行時のフロー、破線はデプロイ時の連携・認可設定を表します。
 
-![システム構成図](infra/architecture.png)
+![全体構成図](infra/architecture-full.png)
 
-詳細は [infra/ARCHITECTURE.md](infra/ARCHITECTURE.md) を参照してください。
+エージェント側インフラ単体の構成図やデプロイフローの詳細は
+[infra/ARCHITECTURE.md](infra/ARCHITECTURE.md) を参照してください。
 
 ## Require
 - AWS CLI

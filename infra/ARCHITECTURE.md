@@ -2,12 +2,23 @@
 
 `infra/lib/agent-runtime-stack.ts` に定義された `NagoyaBusAgentStack` の構成を示します。
 
-## システム構成図
+## 全体構成図（フロントエンド + エージェント）
+
+フロントエンド（`frontend/amplify/` の Amplify Gen2）とエージェント（`infra/` の CDK）を
+合わせた全体像です。実線は実行時のフロー、破線はデプロイ時の連携（SSM 経由の疎結合）・認可設定を表します。
+
+![全体構成図](./architecture-full.png)
+
+## エージェント側インフラの構成図
+
+`infra/` の CDK が管理するリソースとデプロイフローの構成図です。
 
 ![システム構成図](./architecture.png)
 
-編集可能なソースは [architecture.drawio](./architecture.drawio)（draw.io / diagrams.net で編集可能）。
-図を更新した場合は draw.io から PNG をエクスポートして `architecture.png` を差し替えてください。
+編集可能なソースは [architecture.drawio](./architecture.drawio)（draw.io / diagrams.net で編集可能。
+1 ページ目がエージェント側インフラ、2 ページ目「全体構成図」がフロントエンド込みの全体像）。
+図を更新した場合は draw.io から対応するページを PNG エクスポートして
+`architecture.png` / `architecture-full.png` を差し替えてください。
 
 ## リソース関係の詳細（Mermaid）
 

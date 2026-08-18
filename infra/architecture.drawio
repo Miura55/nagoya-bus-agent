@@ -108,4 +108,159 @@
             </root>
         </mxGraphModel>
     </diagram>
+    <diagram id="nagoya-bus-agent-full" name="全体構成図（フロントエンド + エージェント）">
+        <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1000" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="fCloud" value="AWS Cloud" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;container=0;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_aws_cloud_alt;strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#232F3E;dashed=0;" parent="1" vertex="1">
+                    <mxGeometry x="270" y="40" width="1350" height="920" as="geometry"/>
+                </mxCell>
+                <mxCell id="fRegion" value="ap-northeast-1 (東京)" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;container=0;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#00A4A6;dashed=1;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="90" width="1280" height="810" as="geometry"/>
+                </mxCell>
+                <mxCell id="fAmplifyGrp" value="Amplify Gen2（frontend/amplify で管理）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#7D8998;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=12;fontColor=#7D8998;container=0;pointerEvents=0;" parent="1" vertex="1">
+                    <mxGeometry x="370" y="120" width="430" height="660" as="geometry"/>
+                </mxCell>
+                <mxCell id="fStackGrp" value="NagoyaBusAgentStack&lt;br&gt;（infra CDK で管理）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#7D8998;dashed=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fontSize=12;fontColor=#7D8998;container=0;pointerEvents=0;" parent="1" vertex="1">
+                    <mxGeometry x="830" y="130" width="530" height="700" as="geometry"/>
+                </mxCell>
+                <mxCell id="fBrowser" value="ユーザー（ブラウザ）&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;React 19 / Vite&lt;/font&gt;" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;strokeColor=#232F3E;fillColor=#232F3E;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.user;" parent="1" vertex="1">
+                    <mxGeometry x="66" y="380" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fHosting" value="Amplify Hosting&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;（React アプリの配信）&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#DD344C;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.amplify;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="170" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fAppsync" value="AWS AppSync&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;chat / publishChunk / onChatChunk&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.appsync;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="380" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fCognito" value="Amazon Cognito&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;（email サインイン）&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#DD344C;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cognito;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="620" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fLambda" value="chat-agent Lambda&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;（timeout 300s / 1024MB）&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" parent="1" vertex="1">
+                    <mxGeometry x="680" y="380" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fRuntime" value="Bedrock AgentCore Runtime&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;nagoya_bus_agent&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#01A88D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;imageAspect=0;shape=image;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3OCIgaGVpZ2h0PSI3OCIgdmlld0JveD0iMCAwIDc4IDc4Ij48cmVjdCB3aWR0aD0iNzgiIGhlaWdodD0iNzgiIGZpbGw9IiMwMUE4OEQiLz48cGF0aCBkPSJNNTUuMzcyIDE2LjExMkw1Mi4xNzggMTQuODMxTDUwLjkzMyAxMS42NzNDNTAuNzgxIDExLjI5MSA1MC40MTIgMTEuMDQgNTAuMDAyIDExLjA0QzQ5LjU5MSAxMS4wNDEgNDkuMjIyIDExLjI5MiA0OS4wNzEgMTEuNjc1TDQ3LjgxNCAxNC44NzdMNDQuNjM4IDE2LjExQzQ0LjI1MyAxNi4yNTkgNDMuOTk5IDE2LjYzMSA0NCAxNy4wNDVDNDQuMDAxIDE3LjQ1OCA0NC4yNTcgMTcuODI5IDQ0LjY0MyAxNy45NzZMNDcuODkgMTkuMjE3TDQ5LjA2MiAyMi4zODdDNDkuMjA1IDIyLjc3NCA0OS41NzIgMjMuMDM0IDQ5Ljk4NSAyMy4wNEw1MCAyMy4wNEM1MC40MDcgMjMuMDQgNTAuNzc0IDIyLjc5MyA1MC45MjggMjIuNDE0TDUyLjIzMSAxOS4xODFMNTUuMzYgMTcuOTczQzU1Ljc0MyAxNy44MjUgNTUuOTk3IDE3LjQ1OCA1NiAxNy4wNDZDNTYuMDAzIDE2LjYzNiA1NS43NTQgMTYuMjY1IDU1LjM3MiAxNi4xMTJaTTUxLjEwNiAxNy40NzFDNTAuODQ5IDE3LjU3MSA1MC42NDMgMTcuNzczIDUwLjUzOSAxOC4wM0w1MC4wNCAxOS4yNjdMNDkuNjA3IDE4LjA5N0M0OS41MDggMTcuODI3IDQ5LjI5NiAxNy42MTMgNDkuMDI3IDE3LjUxTDQ3Ljc4MiAxNy4wMzVMNDguOTQ3IDE2LjU4M0M0OS4yMDcgMTYuNDgyIDQ5LjQxNCAxNi4yNzYgNDkuNTE2IDE2LjAxNkw1MC4wMDQgMTQuNzcxTDUwLjQzNSAxNS44NjFDNTAuNTIzIDE2LjE4MSA1MC43NjcgMTYuNDM4IDUxLjA3OSAxNi41NDVMNTIuMjY5IDE3LjAyM1pNNTIuMDUzIDI2LjYzOUw0Mi45MTQgMjIuOTc0TDM5LjM1MSAxMy45NDFDMzkuMTIzIDEzLjM2NCAzOC41NzUgMTIuOTkyIDM3Ljk1NSAxMi45OTJDMzcuMzM1IDEyLjk5MyAzNi43ODYgMTMuMzY2IDM2LjU2IDEzLjk0NEwzMi45NTggMjMuMTIyTDMwIDI0LjI3TDMwIDQuMDM5QzMwIDMuNjA4IDI5LjcyNSAzLjIyNyAyOS4zMTYgMy4wOUwyMC4zMTYgMC4wOUMyMC4wNDIgMCAxOS43NDQgMC4wMyAxOS40OTYgMC4xNzVMNy40OTYgNy4xNzVDNy4xODggNy4zNTUgNyA3LjY4NCA3IDguMDM5TDcgMTcuNDU5TDAuNTA0IDIxLjE3MUMwLjE5MiAyMS4zNDkgMCAyMS42OCAwIDIyLjAzOUwwIDM0LjAzOUMwIDM0LjM5OCAwLjE5MiAzNC43MyAwLjUwNCAzNC45MDdMNyAzOC42MTlMNyA0OC4wMzlDNyA0OC4zOTUgNy4xODggNDguNzI0IDcuNDk2IDQ4LjkwM0wxOS40OTYgNTUuOTAzQzE5LjY1IDU1Ljk5MyAxOS44MjUgNTYuMDM5IDIwIDU2LjAzOUMyMC4xMDYgNTYuMDM5IDIwLjIxMyA1Ni4wMjIgMjAuMzE2IDU1Ljk4OEwyOS4zMTYgNTIuOTg4QzI5LjcyNSA1Mi44NTIgMzAgNTIuNDcgMzAgNTIuMDM5TDMwIDMxLjc3OEwzMy4yIDMzLjAwMUwzNi41NjEgNDIuMDg1QzM2Ljc3NyA0Mi42NzEgMzcuMzIgNDMuMDU2IDM3Ljk0NSA0My4wNjVMMzcuOTY5IDQzLjA2NUMzOC41ODQgNDMuMDY1IDM5LjEyOCA0Mi42OTkgMzkuMzU5IDQyLjEyN0w0My4wODkgMzIuODg0TDUyLjAzNSAyOS40MzFDNTIuNjE0IDI5LjIwNyA1Mi45OTEgMjguNjYyIDUyLjk5NSAyOC4wNDFDNTIuOTk5IDI3LjQyIDUyLjYyOSAyNi44NyA1Mi4wNTMgMjYuNjM5Wk0yMC4xMTMgNTMuOTQ3TDE2Ljg2NSA1Mi4wNTNMMjMuNTMgNDcuODg3TDIyLjQ3IDQ2LjE5MUwxNC45MTMgNTAuOTE0TDkgNDcuNDY1TDkgMzguNTc0TDE0LjU1NSAzNC44NzFMMTMuNDQ1IDMzLjIwN0w3Ljk1OSAzNi44NjRMMiAzMy40NTlMMiAyOC42MTlMOC40OTYgMjQuOTA3TDcuNTA0IDIzLjE3MUwyIDI2LjMxNkwyIDIyLjYxOUw4IDE5LjE5MUwxNCAyMi42MTlMMTQgMjYuNDczTDkuNDg1IDI5LjE4MkwxMC41MTUgMzAuODk3TDE1IDI4LjIwNUwxOS40ODUgMzAuODk3TDIwLjUxNSAyOS4xODJMMTYgMjYuNDczTDE2IDIyLjU3NEwyMS41NTUgMTguODcxQzIxLjgzMyAxOC42ODYgMjIgMTguMzc0IDIyIDE4LjAzOUwyMiAxMS4wMzlMMjAgMTEuMDM5TDIwIDE3LjUwNEwxNC45NiAyMC44NjRMOSAxNy40NTlMOSA4LjYxM0wxNCA1LjY5N0wxNCAxNC4wMzlMMTYgMTQuMDM5TDE2IDQuNTNMMjAuMTEzIDIuMTMxTDI4IDQuNzZMMjggMzMuNDczTDEzLjQ4NSA0Mi4xODJMMTQuNTE1IDQzLjg5N0wyOCAzNS44MDVMMjggNTEuMzE4Wk00MS45NjQgMzEuMTc0QzQxLjcwNiAzMS4yNzQgNDEuNTAxIDMxLjQ3NyA0MS4zOTYgMzEuNzMzTDM3Ljk4OCA0MC4xNzlMMzQuOTE4IDMxLjg4MUMzNC44MTggMzEuNjExIDM0LjYwNiAzMS4zOTggMzQuMzM4IDMxLjI5NEwzMCAyOS42MzZMMzAgMjYuNDE0TDM0LjA5IDI0LjgyN0MzNC4zNTEgMjQuNzI2IDM0LjU1OCAyNC41MjEgMzQuNjU5IDI0LjI2TDM3Ljk1NyAxNS44NTdMNDEuMTQgMjMuOTI1QzQxLjIwOSAyNC4yOTIgNDEuNDg2IDI0LjU4NyA0MS44NCAyNC42OThMNTAuMTI5IDI4LjAyM1oiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEwLjk5OCAxMC45ODApIiBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiLz48L3N2Zz4=;" parent="1" vertex="1">
+                    <mxGeometry x="1040" y="380" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fSsm" value="SSM Parameter Store&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;/nagoya-bus-agent/runtime-arn&lt;/font&gt;" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;labelBackgroundColor=#ffffff;shape=mxgraph.aws4.parameter_store;" parent="1" vertex="1">
+                    <mxGeometry x="850" y="660" width="75" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fMemory" value="Bedrock AgentCore Memory&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;nagoya_bus_agent_mem（STM / 30日）&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#01A88D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;imageAspect=0;labelBackgroundColor=#ffffff;shape=image;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3OCIgaGVpZ2h0PSI3OCIgdmlld0JveD0iMCAwIDc4IDc4Ij48cmVjdCB3aWR0aD0iNzgiIGhlaWdodD0iNzgiIGZpbGw9IiMwMUE4OEQiLz48cGF0aCBkPSJNNTUuMzcyIDE2LjExMkw1Mi4xNzggMTQuODMxTDUwLjkzMyAxMS42NzNDNTAuNzgxIDExLjI5MSA1MC40MTIgMTEuMDQgNTAuMDAyIDExLjA0QzQ5LjU5MSAxMS4wNDEgNDkuMjIyIDExLjI5MiA0OS4wNzEgMTEuNjc1TDQ3LjgxNCAxNC44NzdMNDQuNjM4IDE2LjExQzQ0LjI1MyAxNi4yNTkgNDMuOTk5IDE2LjYzMSA0NCAxNy4wNDVDNDQuMDAxIDE3LjQ1OCA0NC4yNTcgMTcuODI5IDQ0LjY0MyAxNy45NzZMNDcuODkgMTkuMjE3TDQ5LjA2MiAyMi4zODdDNDkuMjA1IDIyLjc3NCA0OS41NzIgMjMuMDM0IDQ5Ljk4NSAyMy4wNEw1MCAyMy4wNEM1MC40MDcgMjMuMDQgNTAuNzc0IDIyLjc5MyA1MC45MjggMjIuNDE0TDUyLjIzMSAxOS4xODFMNTUuMzYgMTcuOTczQzU1Ljc0MyAxNy44MjUgNTUuOTk3IDE3LjQ1OCA1NiAxNy4wNDZDNTYuMDAzIDE2LjYzNiA1NS43NTQgMTYuMjY1IDU1LjM3MiAxNi4xMTJaTTUxLjEwNiAxNy40NzFDNTAuODQ5IDE3LjU3MSA1MC42NDMgMTcuNzczIDUwLjUzOSAxOC4wM0w1MC4wNCAxOS4yNjdMNDkuNjA3IDE4LjA5N0M0OS41MDggMTcuODI3IDQ5LjI5NiAxNy42MTMgNDkuMDI3IDE3LjUxTDQ3Ljc4MiAxNy4wMzVMNDguOTQ3IDE2LjU4M0M0OS4yMDcgMTYuNDgyIDQ5LjQxNCAxNi4yNzYgNDkuNTE2IDE2LjAxNkw1MC4wMDQgMTQuNzcxTDUwLjQzNSAxNS44NjFDNTAuNTIzIDE2LjE4MSA1MC43NjcgMTYuNDM4IDUxLjA3OSAxNi41NDVMNTIuMjY5IDE3LjAyM1pNNTIuMDUzIDI2LjYzOUw0Mi45MTQgMjIuOTc0TDM5LjM1MSAxMy45NDFDMzkuMTIzIDEzLjM2NCAzOC41NzUgMTIuOTkyIDM3Ljk1NSAxMi45OTJDMzcuMzM1IDEyLjk5MyAzNi43ODYgMTMuMzY2IDM2LjU2IDEzLjk0NEwzMi45NTggMjMuMTIyTDMwIDI0LjI3TDMwIDQuMDM5QzMwIDMuNjA4IDI5LjcyNSAzLjIyNyAyOS4zMTYgMy4wOUwyMC4zMTYgMC4wOUMyMC4wNDIgMCAxOS43NDQgMC4wMyAxOS40OTYgMC4xNzVMNy40OTYgNy4xNzVDNy4xODggNy4zNTUgNyA3LjY4NCA3IDguMDM5TDcgMTcuNDU5TDAuNTA0IDIxLjE3MUMwLjE5MiAyMS4zNDkgMCAyMS42OCAwIDIyLjAzOUwwIDM0LjAzOUMwIDM0LjM5OCAwLjE5MiAzNC43MyAwLjUwNCAzNC45MDdMNyAzOC42MTlMNyA0OC4wMzlDNyA0OC4zOTUgNy4xODggNDguNzI0IDcuNDk2IDQ4LjkwM0wxOS40OTYgNTUuOTAzQzE5LjY1IDU1Ljk5MyAxOS44MjUgNTYuMDM5IDIwIDU2LjAzOUMyMC4xMDYgNTYuMDM5IDIwLjIxMyA1Ni4wMjIgMjAuMzE2IDU1Ljk4OEwyOS4zMTYgNTIuOTg4QzI5LjcyNSA1Mi44NTIgMzAgNTIuNDcgMzAgNTIuMDM5TDMwIDMxLjc3OEwzMy4yIDMzLjAwMUwzNi41NjEgNDIuMDg1QzM2Ljc3NyA0Mi42NzEgMzcuMzIgNDMuMDU2IDM3Ljk0NSA0My4wNjVMMzcuOTY5IDQzLjA2NUMzOC41ODQgNDMuMDY1IDM5LjEyOCA0Mi42OTkgMzkuMzU5IDQyLjEyN0w0My4wODkgMzIuODg0TDUyLjAzNSAyOS40MzFDNTIuNjE0IDI5LjIwNyA1Mi45OTEgMjguNjYyIDUyLjk5NSAyOC4wNDFDNTIuOTk5IDI3LjQyIDUyLjYyOSAyNi44NyA1Mi4wNTMgMjYuNjM5Wk0yMC4xMTMgNTMuOTQ3TDE2Ljg2NSA1Mi4wNTNMMjMuNTMgNDcuODg3TDIyLjQ3IDQ2LjE5MUwxNC45MTMgNTAuOTE0TDkgNDcuNDY1TDkgMzguNTc0TDE0LjU1NSAzNC44NzFMMTMuNDQ1IDMzLjIwN0w3Ljk1OSAzNi44NjRMMiAzMy40NTlMMiAyOC42MTlMOC40OTYgMjQuOTA3TDcuNTA0IDIzLjE3MUwyIDI2LjMxNkwyIDIyLjYxOUw4IDE5LjE5MUwxNCAyMi42MTlMMTQgMjYuNDczTDkuNDg1IDI5LjE4MkwxMC41MTUgMzAuODk3TDE1IDI4LjIwNUwxOS40ODUgMzAuODk3TDIwLjUxNSAyOS4xODJMMTYgMjYuNDczTDE2IDIyLjU3NEwyMS41NTUgMTguODcxQzIxLjgzMyAxOC42ODYgMjIgMTguMzc0IDIyIDE4LjAzOUwyMiAxMS4wMzlMMjAgMTEuMDM5TDIwIDE3LjUwNEwxNC45NiAyMC44NjRMOSAxNy40NTlMOSA4LjYxM0wxNCA1LjY5N0wxNCAxNC4wMzlMMTYgMTQuMDM5TDE2IDQuNTNMMjAuMTEzIDIuMTMxTDI4IDQuNzZMMjggMzMuNDczTDEzLjQ4NSA0Mi4xODJMMTQuNTE1IDQzLjg5N0wyOCAzNS44MDVMMjggNTEuMzE4Wk00MS45NjQgMzEuMTc0QzQxLjcwNiAzMS4yNzQgNDEuNTAxIDMxLjQ3NyA0MS4zOTYgMzEuNzMzTDM3Ljk4OCA0MC4xNzlMMzQuOTE4IDMxLjg4MUMzNC44MTggMzEuNjExIDM0LjYwNiAzMS4zOTggMzQuMzM4IDMxLjI5NEwzMCAyOS42MzZMMzAgMjYuNDE0TDM0LjA5IDI0LjgyN0MzNC4zNTEgMjQuNzI2IDM0LjU1OCAyNC41MjEgMzQuNjU5IDI0LjI2TDM3Ljk1NyAxNS44NTdMNDEuMTQgMjMuOTI1QzQxLjIwOSAyNC4yOTIgNDEuNDg2IDI0LjU4NyA0MS44NCAyNC42OThMNTAuMTI5IDI4LjAyM1oiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEwLjk5OCAxMC45ODApIiBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiLz48L3N2Zz4=;" parent="1" vertex="1">
+                    <mxGeometry x="1040" y="660" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fEcr" value="Amazon ECR&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;DockerImageAsset&lt;br&gt;（linux/arm64）&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ecr;" parent="1" vertex="1">
+                    <mxGeometry x="1240" y="660" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fBedrock" value="Amazon Bedrock&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Claude Sonnet 4.6&lt;br&gt;（jp.anthropic.claude-sonnet-4-6）&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#01A88D;strokeColor=#ffffff;dashed=0;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.bedrock;" parent="1" vertex="1">
+                    <mxGeometry x="1400" y="380" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="fCw" value="Amazon CloudWatch / X-Ray&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;（OpenTelemetry）&lt;/font&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cloudwatch_2;" parent="1" vertex="1">
+                    <mxGeometry x="1400" y="560" width="78" height="78" as="geometry"/>
+                </mxCell>
+                <mxCell id="gHostingBrowser" value="React アプリ配信" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="fHosting" target="fBrowser" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="105" y="209"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gBrowserChat" value="chat mutation（JWT 付き）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" parent="1" source="fBrowser" target="fAppsync" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="-15" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gChunkBrowser" value="onChatChunk でチャンク受信" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=0;exitY=0.7;exitDx=0;exitDy=0;entryX=1;entryY=0.7;entryDx=0;entryDy=0;" parent="1" source="fAppsync" target="fBrowser" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="-16" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gBrowserCognito" value="サインイン（email）/ JWT 取得" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="fBrowser" target="fCognito" edge="1">
+                    <mxGeometry x="0.38" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="105" y="659"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gAppsyncCognito" value="JWT 検証&#10;（userPool 認可）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#7f8c8d;strokeColor=#7f8c8d;endArrow=block;labelBackgroundColor=#ffffff;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="fAppsync" target="fCognito" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="-69" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gAppsyncLambda" value="chat リゾルバで起動" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" parent="1" source="fAppsync" target="fLambda" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="-15" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gLambdaPublish" value="publishChunk mutation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=0;exitY=0.7;exitDx=0;exitDy=0;entryX=1;entryY=0.7;entryDx=0;entryDy=0;" parent="1" source="fLambda" target="fAppsync" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="-16" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gLambdaSelf" value="自己 Invoke（Event）で非同期化" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=0.25;exitY=0;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" parent="1" source="fLambda" target="fLambda" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="700" y="330"/>
+                            <mxPoint x="738" y="330"/>
+                        </Array>
+                        <mxPoint y="-20" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gLambdaRuntime" value="InvokeAgentRuntime&#10;（runtimeUserId 付き）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" parent="1" source="fLambda" target="fRuntime" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="-26" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gRuntimeStream" value="ストリーム応答（SSE）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=0;exitY=0.7;exitDx=0;exitDy=0;entryX=1;entryY=0.7;entryDx=0;entryDy=0;" parent="1" source="fRuntime" target="fLambda" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="16" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gRuntimeSsm" value="Runtime ARN を書き出し&#10;（デプロイ時）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#7f8c8d;strokeColor=#7f8c8d;endArrow=block;labelBackgroundColor=#ffffff;dashed=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="fRuntime" target="fSsm" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1059" y="560"/>
+                            <mxPoint x="888" y="560"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gSsmLambda" value="AGENTCORE_RUNTIME_ARN を&#10;env に注入（デプロイ時）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#7f8c8d;strokeColor=#7f8c8d;endArrow=block;labelBackgroundColor=#ffffff;dashed=1;exitX=0;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.9;entryDx=0;entryDy=0;" parent="1" source="fSsm" target="fLambda" edge="1">
+                    <mxGeometry x="-0.55" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="560" y="683"/>
+                            <mxPoint x="560" y="450"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gRuntimeMemory" value="会話履歴の保存 / 取得" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="fRuntime" target="fMemory" edge="1">
+                    <mxGeometry x="0.386" relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="gEcrRuntime" value="コンテナイメージ pull" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" parent="1" source="fEcr" target="fRuntime" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1279" y="520"/>
+                            <mxPoint x="1099" y="520"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="gRuntimeBedrock" value="InvokeModel（ストリーミング応答）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" parent="1" source="fRuntime" target="fBedrock" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="gRuntimeCw" value="ログ / メトリクス / トレース" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=11;fontColor=#232F3E;strokeColor=#545B64;endArrow=block;labelBackgroundColor=#ffffff;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="fRuntime" target="fCw" edge="1">
+                    <mxGeometry x="-0.54" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1335" y="438"/>
+                            <mxPoint x="1335" y="599"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="fNote1" value="実線＝実行時のフロー ／ 破線＝デプロイ時の連携（SSM 経由の疎結合）・認可設定。デプロイ手順の詳細は infra/ARCHITECTURE.md を参照" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#7D8998;whiteSpace=wrap;" parent="1" vertex="1">
+                    <mxGeometry x="370" y="815" width="940" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="fNote2" value="出典: infra/lib/agent-runtime-stack.ts, frontend/amplify/（backend.ts / auth / data / functions/chat-agent）" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#7D8998;whiteSpace=wrap;" parent="1" vertex="1">
+                    <mxGeometry x="370" y="838" width="940" height="18" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
 </mxfile>
