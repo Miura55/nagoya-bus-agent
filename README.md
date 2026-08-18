@@ -2,6 +2,14 @@
 
 名古屋の市バスの運行情報を調べるエージェントです
 
+## Architecture
+
+エージェント側インフラ（`infra/` の CDK で管理）の構成図です。
+
+![システム構成図](infra/architecture.png)
+
+詳細は [infra/ARCHITECTURE.md](infra/ARCHITECTURE.md) を参照してください。
+
 ## Require
 - AWS CLI
 - uv
