@@ -40,6 +40,8 @@ type ChatEvent = {
   arguments?: {
     prompt?: string
     sessionId?: string
+    requestId?: string
+    sequence?: number
     delta?: string | null
     done?: boolean
     error?: string | null
@@ -50,6 +52,7 @@ type AsyncChatTaskEvent = {
   task: typeof ASYNC_TASK_NAME
   prompt: string
   sessionId: string
+  requestId: string
   runtimeUserId?: string
 }
 
@@ -70,13 +73,15 @@ export const handler = async (event: unknown) => {
   // publishChunk so that the mutation triggers onChatChunk subscriptions.
   // Simply echo the arguments back as the resolver result.
   if (fieldName === 'publishChunk') {
-    const { sessionId, delta = null, done, error = null } = chatEvent.arguments as {
+    const { sessionId, requestId, sequence, delta = null, done, error = null } = chatEvent.arguments as {
       sessionId: string
+      requestId: string
+      sequence: number
       delta?: string | null
       done: boolean
       error?: string | null
     }
-    return { sessionId, delta, done, error }
+    return { sessionId, requestId, sequence, delta, done, error }
   }
 
   if (fieldName === 'healthCheck') {
@@ -98,18 +103,21 @@ export const handler = async (event: unknown) => {
   }
 
   const runtimeSessionId = chatEvent.arguments?.sessionId?.trim() || randomUUID()
+  const requestId = chatEvent.arguments?.requestId?.trim() || randomUUID()
   const runtimeUserId = extractRuntimeUserId(chatEvent.identity)
 
   await enqueueAsyncChatTask({
     task: ASYNC_TASK_NAME,
     prompt,
     sessionId: runtimeSessionId,
+    requestId,
     runtimeUserId,
   })
 
   return {
     reply: '処理を開始しました。回答を順次配信します。',
     sessionId: runtimeSessionId,
+    requestId,
     statusCode: 202,
   }
 }
@@ -130,9 +138,11 @@ async function enqueueAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void
 }
 
 async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
+  let nextSequence = 0
+  let donePublished = false
   const runtimeArn = process.env.AGENTCORE_RUNTIME_ARN
   if (!runtimeArn) {
-    await publishChunk(taskEvent.sessionId, undefined, true, 'AGENTCORE_RUNTIME_ARN is not configured.').catch(
+    await publishChunkWithRetry(taskEvent, nextSequence, undefined, true, 'AGENTCORE_RUNTIME_ARN is not configured.').catch(
       (err: unknown) => console.warn('publishChunk (missing runtime arn) failed:', err),
     )
     return
@@ -141,7 +151,6 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
   // Invoke the AgentCore runtime with a hard timeout.
   const abortController = new AbortController()
   const abortTimer = setTimeout(() => abortController.abort(), INVOKE_TIMEOUT_MS)
-  let donePublished = false
 
   try {
     const response = await agentClient
@@ -175,25 +184,23 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
     // frontend can render progressively.
     const textChunks: string[] = []
 
-    try {
-      for await (const eventText of streamResponseEvents(response.response)) {
-        if (!eventText) {
-          continue
-        }
-
-        textChunks.push(eventText)
-
-        await publishChunk(taskEvent.sessionId, eventText, false).catch((err: unknown) => {
-          console.warn('publishChunk (delta) failed:', err)
-        })
+    for await (const eventText of streamResponseEvents(response.response)) {
+      if (!eventText) {
+        continue
       }
-    } finally {
-      // Always publish the terminal done=true event so subscribers can clean up.
-      await publishChunk(taskEvent.sessionId, undefined, true).catch((err: unknown) => {
-        console.warn('publishChunk (done) failed:', err)
-      })
-      donePublished = true
+
+      textChunks.push(eventText)
+
+      // A retry may deliver the same sequence more than once if the mutation
+      // succeeded but its response was lost. The frontend de-duplicates it.
+      await publishChunkWithRetry(taskEvent, nextSequence, eventText, false)
+      nextSequence += 1
     }
+
+    // The terminal event is sequenced after every delta. The subscriber waits
+    // for any earlier delayed events before applying it.
+    await publishChunkWithRetry(taskEvent, nextSequence, undefined, true)
+    donePublished = true
 
     const reply = textChunks.join('').trim()
     if (!reply) {
@@ -205,7 +212,7 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
     const message = error instanceof Error ? error.message : 'Chat stream failed.'
     console.error('Async chat task failed:', error)
     if (!donePublished) {
-      await publishChunk(taskEvent.sessionId, undefined, true, message).catch((err: unknown) => {
+      await publishChunkWithRetry(taskEvent, nextSequence, undefined, true, message).catch((err: unknown) => {
         console.warn('publishChunk (error done) failed:', err)
       })
     }
@@ -279,12 +286,16 @@ function* parseLine(line: string): Generator<string> {
 
 async function publishChunk(
   sessionId: string,
+  requestId: string,
+  sequence: number,
   delta: string | undefined,
   done: boolean,
   error?: string,
 ): Promise<void> {
   const result = await dataClient.mutations.publishChunk({
     sessionId,
+    requestId,
+    sequence,
     delta: delta ?? null,
     done,
     error: error ?? null,
@@ -294,6 +305,32 @@ async function publishChunk(
     const detail = result.errors.map((e) => e?.message).filter(Boolean).join(' / ')
     throw new Error(detail || 'publishChunk failed.')
   }
+}
+
+async function publishChunkWithRetry(
+  taskEvent: Pick<AsyncChatTaskEvent, 'sessionId' | 'requestId'>,
+  sequence: number,
+  delta: string | undefined,
+  done: boolean,
+  error?: string,
+): Promise<void> {
+  const retryDelaysMs = [0, 100, 300]
+  let lastError: unknown
+
+  for (const delayMs of retryDelaysMs) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+
+    try {
+      await publishChunk(taskEvent.sessionId, taskEvent.requestId, sequence, delta, done, error)
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +414,7 @@ function isAsyncChatTaskEvent(value: unknown): value is AsyncChatTaskEvent {
     record.task === ASYNC_TASK_NAME
     && typeof record.prompt === 'string'
     && typeof record.sessionId === 'string'
+    && typeof record.requestId === 'string'
     && (typeof record.runtimeUserId === 'string' || typeof record.runtimeUserId === 'undefined')
   )
 }

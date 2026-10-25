@@ -5,12 +5,15 @@ const schema = a.schema({
   ChatResponse: a.customType({
     reply: a.string().required(),
     sessionId: a.string().required(),
+    requestId: a.string(),
     traceId: a.string(),
     statusCode: a.integer(),
   }),
   /** Individual text delta published by the Lambda during streaming. */
   ChatChunk: a.customType({
     sessionId: a.string().required(),
+    requestId: a.string().required(),
+    sequence: a.integer().required(),
     delta: a.string(),
     done: a.boolean().required(),
     error: a.string(),
@@ -25,6 +28,7 @@ const schema = a.schema({
     .arguments({
       prompt: a.string().required(),
       sessionId: a.string(),
+      requestId: a.string(),
     })
     .returns(a.ref('ChatResponse'))
     .authorization((allow) => [allow.authenticated()])
@@ -43,6 +47,8 @@ const schema = a.schema({
     .mutation()
     .arguments({
       sessionId: a.string().required(),
+      requestId: a.string().required(),
+      sequence: a.integer().required(),
       delta: a.string(),
       done: a.boolean().required(),
       error: a.string(),
@@ -56,7 +62,10 @@ const schema = a.schema({
   onChatChunk: a
     .subscription()
     .for(a.ref('publishChunk'))
-    .arguments({ sessionId: a.string().required() })
+    .arguments({
+      sessionId: a.string().required(),
+      requestId: a.string().required(),
+    })
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.custom({ entry: './on-chat-chunk.js' }))
 });

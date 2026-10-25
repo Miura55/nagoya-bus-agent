@@ -4,6 +4,7 @@ import { generateClient } from 'aws-amplify/data'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
+import { createOrderedChunkConsumer } from './ordered-chunk-consumer.js'
 
 const client = generateClient()
 const ASYNC_ACK_REPLY = '処理を開始しました。回答を順次配信します。'
@@ -87,6 +88,7 @@ function ChatWorkspace({ signOut, user }) {
 
     // Add the user message and a placeholder assistant message immediately.
     const assistantId = crypto.randomUUID()
+    const requestId = crypto.randomUUID()
     setMessages((current) => [
       ...current,
       userMessage,
@@ -101,34 +103,37 @@ function ChatWorkspace({ signOut, user }) {
     const canSubscribe = typeof client?.subscriptions?.onChatChunk === 'function'
     let sub = null
 
+    const orderedChunks = createOrderedChunkConsumer((chunk) => {
+      if (chunk?.delta) {
+        setMessages((current) =>
+          current.map((msg) =>
+            msg.id === assistantId
+              ? { ...msg, text: `${msg.text}${chunk.delta}` }
+              : msg,
+          ),
+        )
+      }
+      if (chunk?.done) {
+        setMessages((current) =>
+          current.map((msg) =>
+            msg.id === assistantId ? { ...msg, streaming: false } : msg,
+          ),
+        )
+        if (chunk?.error) {
+          setErrorMessage(chunk.error)
+        }
+        setIsSending(false)
+        sub?.unsubscribe()
+      }
+    })
+
     if (canSubscribe) {
       sub = client
-        .subscriptions.onChatChunk({ sessionId })
+        .subscriptions.onChatChunk({ sessionId, requestId })
         .subscribe({
           next: (event) => {
             const chunk = event?.data ?? event
-
-            if (chunk?.delta) {
-              setMessages((current) =>
-                current.map((msg) =>
-                  msg.id === assistantId
-                    ? { ...msg, text: `${msg.text}${chunk.delta}` }
-                    : msg,
-                ),
-              )
-            }
-            if (chunk?.done) {
-              setMessages((current) =>
-                current.map((msg) =>
-                  msg.id === assistantId ? { ...msg, streaming: false } : msg,
-                ),
-              )
-              if (chunk?.error) {
-                setErrorMessage(chunk.error)
-              }
-              setIsSending(false)
-              sub?.unsubscribe()
-            }
+            orderedChunks.push(chunk)
           },
           error: (err) => {
             console.error('Streaming subscription error:', err)
@@ -148,6 +153,7 @@ function ChatWorkspace({ signOut, user }) {
       const result = await client.mutations.chat({
         prompt: nextPrompt,
         sessionId,
+        requestId,
       })
 
       if (Array.isArray(result?.errors) && result.errors.length > 0) {
