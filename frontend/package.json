@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test",
     "preview": "vite preview",
     "ampx:sandbox": "pnpm dlx node@20.19.0 ./node_modules/@aws-amplify/backend-cli/lib/ampx.js sandbox",
     "ampx:deploy": "pnpm dlx node@20.19.0 ./node_modules/@aws-amplify/backend-cli/lib/ampx.js pipeline-deploy --branch main"
