@@ -7,6 +7,10 @@
 フロントエンド（`frontend/amplify/` の Amplify Gen2）とエージェント（`infra/` の CDK）を
 合わせた全体構成図です。実線は実行時のフロー、破線はデプロイ時の連携・認可設定を表します。
 
+会話一覧と表示用メッセージは Amplify Data（DynamoDB）に Cognito ユーザー単位で保存される。
+画面から過去のセッションを選ぶと、その ID が AgentCore の `runtimeSessionId` として再利用されるため、
+表示履歴と AgentCore Memory の両方が同じ会話単位で復元される。
+
 ![全体構成図](infra/architecture-full.png)
 
 エージェント側インフラ単体の構成図やデプロイフローの詳細は

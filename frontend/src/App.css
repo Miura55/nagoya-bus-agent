@@ -90,17 +90,110 @@
 }
 
 .chat-card,
-.setup-card {
+.setup-card,
+.session-panel {
   border: 1px solid var(--panel-border);
   border-radius: 28px;
   background: var(--panel-bg);
   box-shadow: var(--panel-shadow);
 }
 
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.session-panel {
+  min-width: 0;
+  max-height: 72vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-panel__header {
+  padding: 20px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.session-panel__header h3,
+.chat-card__header h3 {
+  margin: 0;
+}
+
+.new-session-button {
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 14px;
+  background: var(--accent-strong);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.new-session-button:disabled,
+.session-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.session-list {
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.session-list__empty,
+.history-loading {
+  padding: 12px;
+  color: var(--muted-text);
+  font-size: 14px;
+}
+
+.session-item {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.session-item:hover,
+.session-item--active {
+  border-color: var(--assistant-border);
+  background: var(--assistant-bg);
+}
+
+.session-item__title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item__date {
+  color: var(--meta-text);
+  font-size: 12px;
+}
+
 .chat-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   min-height: 72vh;
+  min-width: 0;
+  max-height: 72vh;
   overflow: hidden;
 }
 
@@ -387,6 +480,18 @@
 
   .hero-meta {
     justify-content: flex-start;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .session-panel {
+    max-height: 280px;
+  }
+
+  .chat-card {
+    max-height: none;
   }
 
   .chat-card__header,

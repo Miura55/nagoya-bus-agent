@@ -53,7 +53,8 @@ type AsyncChatTaskEvent = {
   prompt: string
   sessionId: string
   requestId: string
-  runtimeUserId?: string
+  runtimeUserId: string
+  startedAt: string
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +106,20 @@ export const handler = async (event: unknown) => {
   const runtimeSessionId = chatEvent.arguments?.sessionId?.trim() || randomUUID()
   const requestId = chatEvent.arguments?.requestId?.trim() || randomUUID()
   const runtimeUserId = extractRuntimeUserId(chatEvent.identity)
+  if (!runtimeUserId) {
+    throw new Error('Authenticated user id is not available.')
+  }
+  const startedAt = new Date().toISOString()
+
+  await ensureOwnedSession(runtimeSessionId, runtimeUserId, prompt, startedAt)
+  await persistMessage({
+    owner: runtimeUserId,
+    sessionId: runtimeSessionId,
+    requestId,
+    role: 'user',
+    content: prompt,
+    orderKey: `${startedAt}#0#${requestId}`,
+  })
 
   await enqueueAsyncChatTask({
     task: ASYNC_TASK_NAME,
@@ -112,6 +127,7 @@ export const handler = async (event: unknown) => {
     sessionId: runtimeSessionId,
     requestId,
     runtimeUserId,
+    startedAt,
   })
 
   return {
@@ -140,6 +156,7 @@ async function enqueueAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void
 async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
   let nextSequence = 0
   let donePublished = false
+  const textChunks: string[] = []
   const runtimeArn = process.env.AGENTCORE_RUNTIME_ARN
   if (!runtimeArn) {
     await publishChunkWithRetry(taskEvent, nextSequence, undefined, true, 'AGENTCORE_RUNTIME_ARN is not configured.').catch(
@@ -164,9 +181,9 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
           payload: new TextEncoder().encode(
             JSON.stringify({
               prompt: taskEvent.prompt,
-              // メモリを「ユーザー単位」で分離するため Cognito sub を actor_id として渡す。
-              // 未取得時はエージェント側で session_id にフォールバックする。
-              ...(taskEvent.runtimeUserId ? { actor_id: taskEvent.runtimeUserId } : {}),
+              // Cognito sub separates memory by user, while runtimeSessionId
+              // separates that user's individual conversations.
+              actor_id: taskEvent.runtimeUserId,
             }),
           ),
         }),
@@ -182,8 +199,6 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
 
     // Stream the response body, publishing each text delta to AppSync so the
     // frontend can render progressively.
-    const textChunks: string[] = []
-
     for await (const eventText of streamResponseEvents(response.response)) {
       if (!eventText) {
         continue
@@ -197,26 +212,143 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
       nextSequence += 1
     }
 
-    // The terminal event is sequenced after every delta. The subscriber waits
-    // for any earlier delayed events before applying it.
-    await publishChunkWithRetry(taskEvent, nextSequence, undefined, true)
-    donePublished = true
-
     const reply = textChunks.join('').trim()
-    if (!reply) {
+    if (reply) {
+      // Store the complete answer before publishing the terminal event. Once
+      // the UI sees done=true, a reload can therefore restore this response.
+      await persistMessage({
+        owner: taskEvent.runtimeUserId,
+        sessionId: taskEvent.sessionId,
+        requestId: taskEvent.requestId,
+        role: 'assistant',
+        content: reply,
+        orderKey: `${taskEvent.startedAt}#1#${taskEvent.requestId}`,
+      })
+      await touchSession(taskEvent.sessionId)
+    } else {
       console.warn('Async chat task completed but produced empty reply.', {
         sessionId: taskEvent.sessionId,
       })
     }
+
+    // The terminal event is sequenced after every delta. The subscriber waits
+    // for any earlier delayed events before applying it.
+    await publishChunkWithRetry(taskEvent, nextSequence, undefined, true)
+    donePublished = true
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Chat stream failed.'
     console.error('Async chat task failed:', error)
+    const partialReply = textChunks.join('').trim()
+    if (partialReply) {
+      await persistMessage({
+        owner: taskEvent.runtimeUserId,
+        sessionId: taskEvent.sessionId,
+        requestId: taskEvent.requestId,
+        role: 'assistant',
+        content: partialReply,
+        orderKey: `${taskEvent.startedAt}#1#${taskEvent.requestId}`,
+      }).catch((persistError: unknown) => {
+        console.warn('Persisting partial assistant response failed:', persistError)
+      })
+    }
     if (!donePublished) {
       await publishChunkWithRetry(taskEvent, nextSequence, undefined, true, message).catch((err: unknown) => {
         console.warn('publishChunk (error done) failed:', err)
       })
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Conversation persistence
+// ---------------------------------------------------------------------------
+
+type PersistedMessage = {
+  owner: string
+  sessionId: string
+  requestId: string
+  role: 'user' | 'assistant'
+  content: string
+  orderKey: string
+}
+
+async function ensureOwnedSession(
+  sessionId: string,
+  owner: string,
+  firstPrompt: string,
+  now: string,
+): Promise<void> {
+  const existing = await dataClient.models.ChatSession.get({ id: sessionId })
+  assertNoDataErrors(existing.errors, 'Loading chat session failed.')
+
+  if (existing.data) {
+    if (existing.data.owner !== owner) {
+      throw new Error('The requested chat session does not belong to this user.')
+    }
+    await touchSession(sessionId, now)
+    return
+  }
+
+  const created = await dataClient.models.ChatSession.create({
+    id: sessionId,
+    owner,
+    title: createSessionTitle(firstPrompt),
+    lastMessageAt: now,
+  })
+
+  if (created.errors?.length) {
+    // A concurrent first message may have created the same session. Re-read it
+    // and still enforce ownership rather than accepting the conflict blindly.
+    const raced = await dataClient.models.ChatSession.get({ id: sessionId })
+    assertNoDataErrors(raced.errors, 'Loading concurrently created chat session failed.')
+    if (!raced.data || raced.data.owner !== owner) {
+      assertNoDataErrors(created.errors, 'Creating chat session failed.')
+      throw new Error('Creating chat session failed.')
+    }
+  }
+}
+
+async function touchSession(sessionId: string, now = new Date().toISOString()): Promise<void> {
+  const result = await dataClient.models.ChatSession.update({
+    id: sessionId,
+    lastMessageAt: now,
+  })
+  assertNoDataErrors(result.errors, 'Updating chat session failed.')
+}
+
+async function persistMessage(message: PersistedMessage): Promise<void> {
+  const id = `${message.requestId}-${message.role}`
+  const result = await dataClient.models.ChatMessage.create({ id, ...message })
+  if (!result.errors?.length) return
+
+  // Lambda Event invocations can be retried. Deterministic ids make storing a
+  // repeated task idempotent while this check prevents accepting a collision.
+  const existing = await dataClient.models.ChatMessage.get({ id })
+  assertNoDataErrors(existing.errors, 'Loading persisted chat message failed.')
+  if (
+    existing.data?.owner === message.owner
+    && existing.data.sessionId === message.sessionId
+    && existing.data.requestId === message.requestId
+    && existing.data.role === message.role
+  ) {
+    return
+  }
+  assertNoDataErrors(result.errors, 'Persisting chat message failed.')
+  throw new Error('Persisting chat message failed.')
+}
+
+function createSessionTitle(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, ' ').trim()
+  return normalized.length > 40 ? `${normalized.slice(0, 40)}…` : normalized
+}
+
+function assertNoDataErrors(
+  errors: ReadonlyArray<{ message?: string | null } | null | undefined> | undefined,
+  fallback: string,
+): void {
+  if (!errors?.length) return
+  const detail = errors.map((error) => error?.message).filter(Boolean).join(' / ')
+  throw new Error(detail || fallback)
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +536,11 @@ function extractRuntimeUserId(identity: unknown): string | undefined {
   if (!identity || typeof identity !== 'object') return undefined
   if ('sub' in identity && typeof identity.sub === 'string') return identity.sub
   if ('username' in identity && typeof identity.username === 'string') return identity.username
+  if ('claims' in identity && identity.claims && typeof identity.claims === 'object') {
+    const claims = identity.claims as Record<string, unknown>
+    if (typeof claims.sub === 'string') return claims.sub
+    if (typeof claims['cognito:username'] === 'string') return claims['cognito:username']
+  }
   return undefined
 }
 
@@ -415,7 +552,8 @@ function isAsyncChatTaskEvent(value: unknown): value is AsyncChatTaskEvent {
     && typeof record.prompt === 'string'
     && typeof record.sessionId === 'string'
     && typeof record.requestId === 'string'
-    && (typeof record.runtimeUserId === 'string' || typeof record.runtimeUserId === 'undefined')
+    && typeof record.runtimeUserId === 'string'
+    && typeof record.startedAt === 'string'
   )
 }
 

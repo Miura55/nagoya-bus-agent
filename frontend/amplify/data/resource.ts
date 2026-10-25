@@ -2,6 +2,33 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 import { chatAgent } from '../functions/chat-agent/resource';
 
 const schema = a.schema({
+  /**
+   * A user-visible conversation. The model id is also used as AgentCore's
+   * runtimeSessionId, so selecting a record restores the matching memory.
+   */
+  ChatSession: a
+    .model({
+      owner: a.string().required(),
+      title: a.string().required(),
+      lastMessageAt: a.datetime().required(),
+    })
+    .authorization((allow) => [
+      allow.ownerDefinedIn('owner').identityClaim('sub').to(['read']),
+    ]),
+  /** Display history persisted independently from AgentCore Memory. */
+  ChatMessage: a
+    .model({
+      owner: a.string().required(),
+      sessionId: a.string().required(),
+      requestId: a.string().required(),
+      role: a.enum(['user', 'assistant']),
+      content: a.string().required(),
+      // Stable chronological key shared by the user/assistant pair.
+      orderKey: a.string().required(),
+    })
+    .authorization((allow) => [
+      allow.ownerDefinedIn('owner').identityClaim('sub').to(['read']),
+    ]),
   ChatResponse: a.customType({
     reply: a.string().required(),
     sessionId: a.string().required(),
@@ -71,7 +98,9 @@ const schema = a.schema({
 });
 
 const schemaWithResourceAccess = schema.authorization((allow) => [
-  allow.resource(chatAgent).to(['mutate']),
+  // The orchestration Lambda validates the Cognito owner before using this
+  // service-level access to persist messages.
+  allow.resource(chatAgent).to(['query', 'mutate']),
 ]);
 
 export type Schema = ClientSchema<typeof schemaWithResourceAccess>;

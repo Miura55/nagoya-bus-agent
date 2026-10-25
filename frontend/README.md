@@ -2,6 +2,10 @@
 
 Amplify 認証付きで Bedrock Agent Core のランタイムに接続するチャット UI です。ブラウザから直接 runtime を叩かず、Amplify Data の custom mutation 経由で Lambda を呼び出します。
 
+`ChatSession` と `ChatMessage` は Amplify Data に永続化され、ログインユーザーは自分の履歴だけを
+読み取れます。メッセージの書き込みはオーケストレーション Lambda に限定しています。過去の会話を
+選択すると保存済みの `sessionId` を AgentCore Runtime に渡し、対応する Memory を引き継ぎます。
+
 ## Prerequisites
 
 - Node.js 20.19 以上
@@ -40,7 +44,9 @@ pnpm dev
 
 ```bash
 pnpm lint
+pnpm test
 pnpm build
+pnpm exec tsc --noEmit -p amplify/tsconfig.json
 ```
 
 Vite 8 は Node.js 20.19 以上を要求します。Node 18 系では build は失敗します。
