@@ -198,8 +198,29 @@
 }
 
 .chat-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   padding: 24px 28px;
   border-bottom: 1px solid var(--panel-border);
+}
+
+.reset-conversation-button {
+  padding: 8px 12px;
+  border: 1px solid var(--error-text);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--error-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reset-conversation-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .message-list {

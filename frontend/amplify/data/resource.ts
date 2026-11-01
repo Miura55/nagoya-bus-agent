@@ -36,6 +36,10 @@ const schema = a.schema({
     traceId: a.string(),
     statusCode: a.integer(),
   }),
+  ResetConversationResponse: a.customType({
+    sessionId: a.string().required(),
+    success: a.boolean().required(),
+  }),
   /** Individual text delta published by the Lambda during streaming. */
   ChatChunk: a.customType({
     sessionId: a.string().required(),
@@ -58,6 +62,19 @@ const schema = a.schema({
       requestId: a.string(),
     })
     .returns(a.ref('ChatResponse'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(chatAgent)),
+  /**
+   * Delete the signed-in user's persisted display history for one conversation.
+   * The client switches to a new runtimeSessionId after this succeeds, so the
+   * deleted conversation's AgentCore Memory is no longer referenced either.
+   */
+  resetConversation: a
+    .mutation()
+    .arguments({
+      sessionId: a.string().required(),
+    })
+    .returns(a.ref('ResetConversationResponse'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(chatAgent)),
   /**

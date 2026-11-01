@@ -55,6 +55,7 @@ function ChatWorkspace({ signOut, user }) {
     }
   })
   const [isSending, setIsSending] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
   const endRef = useRef(null)
@@ -130,7 +131,7 @@ function ChatWorkspace({ signOut, user }) {
   }
 
   function handleNewSession() {
-    if (isSending) return
+    if (isSending || isResetting) return
     setSessionId(crypto.randomUUID())
     setMessages(createWelcomeMessages())
     setPrompt('')
@@ -138,7 +139,7 @@ function ChatWorkspace({ signOut, user }) {
   }
 
   async function handleSelectSession(nextSessionId) {
-    if (isSending || nextSessionId === sessionId) return
+    if (isSending || isResetting || nextSessionId === sessionId) return
     setSessionId(nextSessionId)
     setMessages([])
     setErrorMessage('')
@@ -155,11 +156,38 @@ function ChatWorkspace({ signOut, user }) {
     }
   }
 
+  async function handleResetConversation() {
+    if (isSending || isResetting || isLoadingHistory) return
+    if (!window.confirm('現在の会話内容を削除してリセットしますか？この操作は取り消せません。')) return
+
+    const resetSessionId = sessionId
+    setIsResetting(true)
+    setErrorMessage('')
+    try {
+      const result = await client.mutations.resetConversation({ sessionId: resetSessionId })
+      throwForErrors(result?.errors, '会話のリセットに失敗しました。')
+      const response = result?.data?.resetConversation ?? result?.data ?? result
+      if (!response?.success) throw new Error('会話のリセットに失敗しました。')
+
+      setSessions((current) => current.filter((session) => session.id !== resetSessionId))
+      setSessionId(crypto.randomUUID())
+      setMessages(createWelcomeMessages())
+      setPrompt('')
+    } catch (error) {
+      console.error('Resetting conversation failed:', error)
+      setErrorMessage(error instanceof Error && error.message
+        ? error.message
+        : '会話のリセットに失敗しました。')
+    } finally {
+      setIsResetting(false)
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
 
     const nextPrompt = prompt.trim()
-    if (!nextPrompt || isSending || isLoadingHistory) return
+    if (!nextPrompt || isSending || isResetting || isLoadingHistory) return
 
     const userMessage = { id: crypto.randomUUID(), role: 'user', text: nextPrompt }
     const assistantId = crypto.randomUUID()
@@ -295,7 +323,7 @@ function ChatWorkspace({ signOut, user }) {
         <aside className="session-panel" aria-label="会話履歴">
           <div className="session-panel__header">
             <h3>会話履歴</h3>
-            <button className="new-session-button" type="button" onClick={handleNewSession} disabled={isSending}>
+            <button className="new-session-button" type="button" onClick={handleNewSession} disabled={isSending || isResetting}>
               新しい会話
             </button>
           </div>
@@ -308,7 +336,7 @@ function ChatWorkspace({ signOut, user }) {
                 className={`session-item${session.id === sessionId ? ' session-item--active' : ''}`}
                 type="button"
                 onClick={() => void handleSelectSession(session.id)}
-                disabled={isSending}
+                disabled={isSending || isResetting}
               >
                 <span className="session-item__title">{session.title}</span>
                 <span className="session-item__date">{formatSessionDate(session.lastMessageAt)}</span>
@@ -317,8 +345,18 @@ function ChatWorkspace({ signOut, user }) {
           </div>
         </aside>
 
-        <section className="chat-card" aria-busy={isSending || isLoadingHistory}>
-          <header className="chat-card__header"><h3>Chat</h3></header>
+        <section className="chat-card" aria-busy={isSending || isResetting || isLoadingHistory}>
+          <header className="chat-card__header">
+            <h3>Chat</h3>
+            <button
+              className="reset-conversation-button"
+              type="button"
+              onClick={() => void handleResetConversation()}
+              disabled={isSending || isResetting || isLoadingHistory}
+            >
+              {isResetting ? 'リセット中...' : '会話をリセット'}
+            </button>
+          </header>
 
           <div className="message-list" aria-live="polite">
             {isLoadingHistory ? (
@@ -355,14 +393,14 @@ function ChatWorkspace({ signOut, user }) {
               onCompositionStart={() => { isComposingRef.current = true }}
               onCompositionEnd={() => { isComposingRef.current = false }}
               placeholder="例: 栄から名古屋駅へ行くバスはありますか"
-              disabled={isSending || isLoadingHistory}
+              disabled={isSending || isResetting || isLoadingHistory}
             />
             <div className="composer__footer">
               <p>Enter で送信、Shift + Enter で改行</p>
               <button
                 className="send-button"
                 type="submit"
-                disabled={isSending || isLoadingHistory || !prompt.trim()}
+                disabled={isSending || isResetting || isLoadingHistory || !prompt.trim()}
               >
                 {isSending ? 'Sending...' : 'Send'}
               </button>

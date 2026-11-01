@@ -89,6 +89,20 @@ export const handler = async (event: unknown) => {
     return { reply: 'ok', sessionId: randomUUID(), statusCode: 200 }
   }
 
+  if (fieldName === 'resetConversation') {
+    const sessionId = chatEvent.arguments?.sessionId?.trim()
+    const runtimeUserId = extractRuntimeUserId(chatEvent.identity)
+    if (!sessionId) {
+      throw new Error('Session id must not be empty.')
+    }
+    if (!runtimeUserId) {
+      throw new Error('Authenticated user id is not available.')
+    }
+
+    await deleteOwnedConversation(sessionId, runtimeUserId)
+    return { sessionId, success: true }
+  }
+
   if (fieldName !== 'chat') {
     throw new Error(`Unsupported fieldName: ${String(fieldName)}`)
   }
@@ -335,6 +349,46 @@ async function persistMessage(message: PersistedMessage): Promise<void> {
   }
   assertNoDataErrors(result.errors, 'Persisting chat message failed.')
   throw new Error('Persisting chat message failed.')
+}
+
+async function deleteOwnedConversation(sessionId: string, owner: string): Promise<void> {
+  const session = await dataClient.models.ChatSession.get({ id: sessionId })
+  assertNoDataErrors(session.errors, 'Loading chat session for reset failed.')
+  if (session.data && session.data.owner !== owner) {
+    throw new Error('The requested chat session does not belong to this user.')
+  }
+
+  // Read every id before deleting. Keeping pagination separate from mutation
+  // avoids invalidating a continuation token midway through the scan.
+  const messages: Array<{ id: string, owner: string }> = []
+  let nextToken: string | null | undefined
+  do {
+    const result = await dataClient.models.ChatMessage.list({
+      filter: { sessionId: { eq: sessionId } },
+      limit: 100,
+      nextToken,
+    })
+    assertNoDataErrors(result.errors, 'Loading chat messages for reset failed.')
+    messages.push(...(result.data ?? []).map((message) => ({
+      id: message.id,
+      owner: message.owner,
+    })))
+    nextToken = result.nextToken
+  } while (nextToken)
+
+  if (messages.some((message) => message.owner !== owner)) {
+    throw new Error('The requested chat session contains messages owned by another user.')
+  }
+
+  for (const message of messages) {
+    const deleted = await dataClient.models.ChatMessage.delete({ id: message.id })
+    assertNoDataErrors(deleted.errors, 'Deleting chat message failed.')
+  }
+
+  if (session.data) {
+    const deleted = await dataClient.models.ChatSession.delete({ id: sessionId })
+    assertNoDataErrors(deleted.errors, 'Deleting chat session failed.')
+  }
 }
 
 function createSessionTitle(prompt: string): string {

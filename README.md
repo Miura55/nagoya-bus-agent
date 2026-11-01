@@ -10,6 +10,8 @@
 会話一覧と表示用メッセージは Amplify Data（DynamoDB）に Cognito ユーザー単位で保存される。
 画面から過去のセッションを選ぶと、その ID が AgentCore の `runtimeSessionId` として再利用されるため、
 表示履歴と AgentCore Memory の両方が同じ会話単位で復元される。
+会話をリセットすると、現在の表示履歴を削除して新しい `runtimeSessionId` に切り替えるため、
+以後の応答にはリセット前の会話内容が引き継がれない。
 
 ![全体構成図](infra/architecture-full.png)
 
