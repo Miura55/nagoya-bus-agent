@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import './App.css'
 import { createOrderedChunkConsumer } from './ordered-chunk-consumer.js'
 import {
+  createHistoryLoadGuard,
   createSessionTitle,
   normalizeStoredMessages,
   sortSessionsByRecent,
@@ -48,7 +49,8 @@ function App({ configError }) {
 }
 
 function ChatWorkspace({ signOut, user }) {
-  const sessionStorageKey = `nagoya-bus-session-id:${user?.userId ?? 'anon'}`
+  const runtimeUserId = user?.userId ?? ''
+  const sessionStorageKey = `nagoya-bus-session-id:${runtimeUserId || 'anon'}`
   const [sessions, setSessions] = useState([])
   const [messages, setMessages] = useState(createWelcomeMessages)
   const [prompt, setPrompt] = useState('')
@@ -65,15 +67,17 @@ function ChatWorkspace({ signOut, user }) {
   const [errorMessage, setErrorMessage] = useState('')
   const endRef = useRef(null)
   const isComposingRef = useRef(false)
+  const historyLoadGuardRef = useRef(createHistoryLoadGuard())
 
   useEffect(() => {
     let cancelled = false
 
     async function restoreWorkspace() {
+      const loadId = historyLoadGuardRef.current.start()
       setIsLoadingHistory(true)
       try {
-        const storedSessions = await listAllSessions()
-        if (cancelled) return
+        const storedSessions = await listAllSessions(runtimeUserId)
+        if (cancelled || !historyLoadGuardRef.current.isCurrent(loadId)) return
 
         setSessions(storedSessions)
         let savedSessionId = ''
@@ -83,7 +87,16 @@ function ChatWorkspace({ signOut, user }) {
           // Continue with the newest stored session.
         }
 
-        const savedSession = storedSessions.find((session) => session.id === savedSessionId)
+        let savedSession = storedSessions.find((session) => session.id === savedSessionId)
+        if (savedSessionId && !savedSession) {
+          const savedSessionState = await client.models.ChatSession.get({ id: savedSessionId })
+          throwForErrors(savedSessionState?.errors, '保存された会話状態の取得に失敗しました。')
+          if (cancelled || !historyLoadGuardRef.current.isCurrent(loadId)) return
+          if (savedSessionState?.data?.status === 'reset') {
+            savedSessionId = ''
+            savedSession = undefined
+          }
+        }
         // Keep the pre-database local session id when present. Its old display
         // history cannot be reconstructed, but the matching AgentCore Memory
         // remains usable and the next message registers it in the database.
@@ -93,18 +106,20 @@ function ChatWorkspace({ signOut, user }) {
 
         if (selected) {
           const history = await listSessionMessages(nextSessionId)
-          if (!cancelled) setMessages(history.length > 0 ? history : createWelcomeMessages())
+          if (!cancelled && historyLoadGuardRef.current.isCurrent(loadId)) {
+            setMessages(history.length > 0 ? history : createWelcomeMessages())
+          }
         } else {
           setMessages(createWelcomeMessages())
         }
       } catch (error) {
-        if (!cancelled) {
+        if (!cancelled && historyLoadGuardRef.current.isCurrent(loadId)) {
           console.error('Restoring chat history failed:', error)
           setErrorMessage('会話履歴を読み込めませんでした。')
           setMessages(createWelcomeMessages())
         }
       } finally {
-        if (!cancelled) setIsLoadingHistory(false)
+        if (!cancelled && historyLoadGuardRef.current.isCurrent(loadId)) setIsLoadingHistory(false)
       }
     }
 
@@ -112,7 +127,7 @@ function ChatWorkspace({ signOut, user }) {
     return () => {
       cancelled = true
     }
-  }, [sessionStorageKey])
+  }, [runtimeUserId, sessionStorageKey])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -129,14 +144,15 @@ function ChatWorkspace({ signOut, user }) {
 
   async function refreshSessions() {
     try {
-      setSessions(await listAllSessions())
+      setSessions(await listAllSessions(runtimeUserId))
     } catch (error) {
       console.error('Refreshing sessions failed:', error)
     }
   }
 
   function handleNewSession() {
-    if (isSending || isResetting) return
+    if (isSending || isResetting || isLoadingHistory) return
+    historyLoadGuardRef.current.invalidate()
     setSessionId(crypto.randomUUID())
     setMessages(createWelcomeMessages())
     setPrompt('')
@@ -144,20 +160,23 @@ function ChatWorkspace({ signOut, user }) {
   }
 
   async function handleSelectSession(nextSessionId) {
-    if (isSending || isResetting || nextSessionId === sessionId) return
+    if (isSending || isResetting || isLoadingHistory || nextSessionId === sessionId) return
+    const loadId = historyLoadGuardRef.current.start()
     setSessionId(nextSessionId)
     setMessages([])
     setErrorMessage('')
     setIsLoadingHistory(true)
     try {
       const history = await listSessionMessages(nextSessionId)
+      if (!historyLoadGuardRef.current.isCurrent(loadId)) return
       setMessages(history.length > 0 ? history : createWelcomeMessages())
     } catch (error) {
+      if (!historyLoadGuardRef.current.isCurrent(loadId)) return
       console.error('Loading chat history failed:', error)
       setErrorMessage('選択した会話を読み込めませんでした。')
       setMessages(createWelcomeMessages())
     } finally {
-      setIsLoadingHistory(false)
+      if (historyLoadGuardRef.current.isCurrent(loadId)) setIsLoadingHistory(false)
     }
   }
 
@@ -175,6 +194,7 @@ function ChatWorkspace({ signOut, user }) {
       if (!response?.success) throw new Error('会話のリセットに失敗しました。')
 
       setSessions((current) => current.filter((session) => session.id !== resetSessionId))
+      historyLoadGuardRef.current.invalidate()
       setSessionId(crypto.randomUUID())
       setMessages(createWelcomeMessages())
       setPrompt('')
@@ -237,7 +257,14 @@ function ChatWorkspace({ signOut, user }) {
       if (chunk?.done) {
         setMessages((current) =>
           current.map((message) =>
-            message.id === assistantId ? { ...message, streaming: false } : message,
+            message.id === assistantId
+              ? {
+                  ...message,
+                  streaming: false,
+                  status: chunk.error ? 'failed' : 'complete',
+                  error: chunk.error ?? '',
+                }
+              : message,
           ),
         )
         if (chunk?.error) setErrorMessage(chunk.error)
@@ -256,7 +283,14 @@ function ChatWorkspace({ signOut, user }) {
           setIsSending(false)
           setMessages((current) =>
             current.map((message) =>
-              message.id === assistantId ? { ...message, streaming: false } : message,
+              message.id === assistantId
+                ? {
+                    ...message,
+                    streaming: false,
+                    status: 'failed',
+                    error: 'ストリーミングの購読中にエラーが発生しました。',
+                  }
+                : message,
             ),
           )
           sub?.unsubscribe()
@@ -333,7 +367,7 @@ function ChatWorkspace({ signOut, user }) {
         <aside className="session-panel" aria-label="会話履歴">
           <div className="session-panel__header">
             <h3>会話履歴</h3>
-            <button className="new-session-button" type="button" onClick={handleNewSession} disabled={isSending || isResetting}>
+            <button className="new-session-button" type="button" onClick={handleNewSession} disabled={isSending || isResetting || isLoadingHistory}>
               新しい会話
             </button>
           </div>
@@ -346,7 +380,7 @@ function ChatWorkspace({ signOut, user }) {
                 className={`session-item${session.id === sessionId ? ' session-item--active' : ''}`}
                 type="button"
                 onClick={() => void handleSelectSession(session.id)}
-                disabled={isSending || isResetting}
+                disabled={isSending || isResetting || isLoadingHistory}
               >
                 <span className="session-item__title">{session.title}</span>
                 <span className="session-item__date">{formatSessionDate(session.lastMessageAt)}</span>
@@ -395,6 +429,11 @@ function ChatWorkspace({ signOut, user }) {
                           ) : message.streaming ? <span className="streaming-cursor">{'\u258c'}</span> : null}
                         </div>
                       ) : <p className="message__body">{message.text}</p>}
+                      {message.status === 'failed' ? (
+                        <p className="message__error">
+                          回答が途中で終了しました{message.error ? `: ${message.error}` : '。'}
+                        </p>
+                      ) : null}
                     </div>
                     {message.timestamp || message.traceId ? (
                       <p className="message__meta">
@@ -444,13 +483,23 @@ function ChatWorkspace({ signOut, user }) {
   )
 }
 
-async function listAllSessions() {
+async function listAllSessions(owner) {
+  if (!owner) throw new Error('ログインユーザーを特定できません。')
   const sessions = []
   let nextToken
+  const supportsOwnerIndex = typeof client.models.ChatSession.listChatSessionsByOwner === 'function'
   do {
-    const result = await client.models.ChatSession.list({ limit: 100, nextToken })
+    // During a coordinated schema rollout, amplify_outputs.json can briefly
+    // describe the previous backend. Keep history usable in that window; once
+    // the new output is present, every request uses the owner GSI Query.
+    const result = supportsOwnerIndex
+      ? await client.models.ChatSession.listChatSessionsByOwner(
+          { owner },
+          { sortDirection: 'DESC', limit: 100, nextToken },
+        )
+      : await client.models.ChatSession.list({ limit: 100, nextToken })
     throwForErrors(result?.errors, '会話一覧の取得に失敗しました。')
-    sessions.push(...(result?.data ?? []))
+    sessions.push(...(result?.data ?? []).filter((session) => session.status !== 'reset'))
     nextToken = result?.nextToken
   } while (nextToken)
 
@@ -460,12 +509,18 @@ async function listAllSessions() {
 async function listSessionMessages(sessionId) {
   const messages = []
   let nextToken
+  const supportsSessionIndex = typeof client.models.ChatMessage.listChatMessagesBySession === 'function'
   do {
-    const result = await client.models.ChatMessage.list({
-      filter: { sessionId: { eq: sessionId } },
-      limit: 100,
-      nextToken,
-    })
+    const result = supportsSessionIndex
+      ? await client.models.ChatMessage.listChatMessagesBySession(
+          { sessionId },
+          { sortDirection: 'ASC', limit: 100, nextToken },
+        )
+      : await client.models.ChatMessage.list({
+          filter: { sessionId: { eq: sessionId } },
+          limit: 100,
+          nextToken,
+        })
     throwForErrors(result?.errors, '会話メッセージの取得に失敗しました。')
     messages.push(...(result?.data ?? []))
     nextToken = result?.nextToken

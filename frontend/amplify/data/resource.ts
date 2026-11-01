@@ -11,7 +11,16 @@ const schema = a.schema({
       owner: a.string().required(),
       title: a.string().required(),
       lastMessageAt: a.datetime().required(),
+      // A reset session remains as a tombstone so stale tabs cannot recreate
+      // the same AgentCore runtimeSessionId and recover its old memory.
+      status: a.enum(['active', 'reset']),
+      generation: a.integer(),
     })
+    .secondaryIndexes((index) => [
+      index('owner')
+        .sortKeys(['lastMessageAt'])
+        .queryField('listChatSessionsByOwner'),
+    ])
     .authorization((allow) => [
       allow.ownerDefinedIn('owner').identityClaim('sub').to(['read']),
     ]),
@@ -23,9 +32,17 @@ const schema = a.schema({
       requestId: a.string().required(),
       role: a.enum(['user', 'assistant']),
       content: a.string().required(),
+      status: a.enum(['complete', 'failed']),
+      error: a.string(),
+      sessionGeneration: a.integer(),
       // Stable chronological key shared by the user/assistant pair.
       orderKey: a.string().required(),
     })
+    .secondaryIndexes((index) => [
+      index('sessionId')
+        .sortKeys(['orderKey'])
+        .queryField('listChatMessagesBySession'),
+    ])
     .authorization((allow) => [
       allow.ownerDefinedIn('owner').identityClaim('sub').to(['read']),
     ]),

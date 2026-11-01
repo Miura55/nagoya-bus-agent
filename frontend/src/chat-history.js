@@ -17,10 +17,29 @@ export function normalizeStoredMessages(messages) {
       role: message.role,
       text: message.content,
       timestamp: message.orderKey.split('#', 1)[0] || message.createdAt,
+      status: message.status ?? 'complete',
+      error: message.error ?? '',
     }))
 }
 
 export function createSessionTitle(prompt) {
   const normalized = prompt.replace(/\s+/g, ' ').trim()
   return normalized.length > 40 ? `${normalized.slice(0, 40)}…` : normalized
+}
+
+/** Ignore history responses superseded by a later selection or new session. */
+export function createHistoryLoadGuard() {
+  let latestId = 0
+  return {
+    start() {
+      latestId += 1
+      return latestId
+    },
+    invalidate() {
+      latestId += 1
+    },
+    isCurrent(loadId) {
+      return loadId === latestId
+    },
+  }
 }

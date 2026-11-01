@@ -312,6 +312,14 @@
   word-break: break-word;
 }
 
+.message__error {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid currentColor;
+  color: var(--error-text);
+  font-size: 12px;
+}
+
 .message__body--markdown {
   white-space: normal;
 
