@@ -5,9 +5,25 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
 import { createOrderedChunkConsumer } from './ordered-chunk-consumer.js'
+import {
+  createHistoryLoadGuard,
+  createSessionTitle,
+  normalizeStoredMessages,
+  sortSessionsByRecent,
+} from './chat-history.js'
 
 const client = generateClient()
 const ASYNC_ACK_REPLY = '処理を開始しました。回答を順次配信します。'
+const WELCOME_TEXT = '名古屋市営バスについて、路線、行き先、最寄りの停留所などを質問してください。'
+
+function createWelcomeMessages() {
+  return [{
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    text: WELCOME_TEXT,
+    timestamp: new Date().toISOString(),
+  }]
+}
 
 function App({ configError }) {
   if (configError) {
@@ -33,181 +49,305 @@ function App({ configError }) {
 }
 
 function ChatWorkspace({ signOut, user }) {
-  const [messages, setMessages] = useState(() => [
-    {
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      text: '名古屋市営バスについて、路線、行き先、最寄りの停留所などを質問してください。',
-    },
-  ])
+  const runtimeUserId = user?.userId ?? ''
+  const sessionStorageKey = `nagoya-bus-session-id:${runtimeUserId || 'anon'}`
+  const [sessions, setSessions] = useState([])
+  const [messages, setMessages] = useState(createWelcomeMessages)
   const [prompt, setPrompt] = useState('')
-  // 会話の記憶(AgentCore Memory)はこの sessionId 単位で引き継がれる。
-  // リロードやタブ再オープンで会話が途切れないよう localStorage に永続化する。
-  const sessionStorageKey = `nagoya-bus-session-id:${user?.userId ?? 'anon'}`
   const [sessionId, setSessionId] = useState(() => {
     try {
-      const saved = window.localStorage.getItem(sessionStorageKey)
-      if (saved) return saved
+      return window.localStorage.getItem(sessionStorageKey) || crypto.randomUUID()
     } catch {
-      // localStorage が使えない環境では都度生成にフォールバック
+      return crypto.randomUUID()
     }
-    return crypto.randomUUID()
   })
   const [isSending, setIsSending] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
   const endRef = useRef(null)
   const isComposingRef = useRef(false)
+  const historyLoadGuardRef = useRef(createHistoryLoadGuard())
+  const sessionListLoadGuardRef = useRef(createHistoryLoadGuard())
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function restoreWorkspace() {
+      const loadId = historyLoadGuardRef.current.start()
+      setIsLoadingHistory(true)
+      try {
+        const storedSessions = await listAllSessions(runtimeUserId)
+        if (cancelled || !historyLoadGuardRef.current.isCurrent(loadId)) return
+
+        setSessions(storedSessions)
+        let savedSessionId = ''
+        try {
+          savedSessionId = window.localStorage.getItem(sessionStorageKey) ?? ''
+        } catch {
+          // Continue with the newest stored session.
+        }
+
+        let savedSession = storedSessions.find((session) => session.id === savedSessionId)
+        if (savedSessionId && !savedSession) {
+          const savedSessionState = await client.models.ChatSession.get({ id: savedSessionId })
+          throwForErrors(savedSessionState?.errors, '保存された会話状態の取得に失敗しました。')
+          if (cancelled || !historyLoadGuardRef.current.isCurrent(loadId)) return
+          if (savedSessionState?.data?.status === 'reset') {
+            savedSessionId = ''
+            savedSession = undefined
+          } else if (savedSessionState?.data) {
+            savedSession = savedSessionState.data
+          }
+        }
+        // Keep the pre-database local session id when present. Its old display
+        // history cannot be reconstructed, but the matching AgentCore Memory
+        // remains usable and the next message registers it in the database.
+        const selected = savedSession ?? (savedSessionId ? undefined : storedSessions[0])
+        const nextSessionId = selected?.id ?? (savedSessionId || crypto.randomUUID())
+        setSessionId(nextSessionId)
+
+        if (selected) {
+          const history = await listSessionMessages(nextSessionId)
+          if (!cancelled && historyLoadGuardRef.current.isCurrent(loadId)) {
+            setMessages(history.length > 0 ? history : createWelcomeMessages())
+          }
+        } else {
+          setMessages(createWelcomeMessages())
+        }
+      } catch (error) {
+        if (!cancelled && historyLoadGuardRef.current.isCurrent(loadId)) {
+          console.error('Restoring chat history failed:', error)
+          setErrorMessage('会話履歴を読み込めませんでした。')
+          setMessages(createWelcomeMessages())
+        }
+      } finally {
+        if (!cancelled && historyLoadGuardRef.current.isCurrent(loadId)) setIsLoadingHistory(false)
+      }
+    }
+
+    void restoreWorkspace()
+    return () => {
+      cancelled = true
+    }
+  }, [runtimeUserId, sessionStorageKey])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, isSending])
 
-  // sessionId が変わるたびに永続化(初回生成・サーバー返却値での更新の両方をカバー)。
   useEffect(() => {
+    if (isLoadingHistory) return
     try {
       window.localStorage.setItem(sessionStorageKey, sessionId)
     } catch {
-      // 永続化できない環境は無視(メモリ上のみで継続)
+      // The database remains the source of truth when localStorage is unavailable.
     }
-  }, [sessionId, sessionStorageKey])
+  }, [isLoadingHistory, sessionId, sessionStorageKey])
+
+  async function refreshSessions() {
+    const loadId = sessionListLoadGuardRef.current.start()
+    try {
+      const refreshedSessions = await listAllSessions(runtimeUserId)
+      if (sessionListLoadGuardRef.current.isCurrent(loadId)) {
+        setSessions(refreshedSessions)
+      }
+    } catch (error) {
+      console.error('Refreshing sessions failed:', error)
+    }
+  }
+
+  function handleNewSession() {
+    if (isSending || isResetting || isLoadingHistory) return
+    historyLoadGuardRef.current.invalidate()
+    setSessionId(crypto.randomUUID())
+    setMessages(createWelcomeMessages())
+    setPrompt('')
+    setErrorMessage('')
+  }
+
+  async function handleSelectSession(nextSessionId) {
+    if (isSending || isResetting || isLoadingHistory || nextSessionId === sessionId) return
+    const loadId = historyLoadGuardRef.current.start()
+    setSessionId(nextSessionId)
+    setMessages([])
+    setErrorMessage('')
+    setIsLoadingHistory(true)
+    try {
+      const history = await listSessionMessages(nextSessionId)
+      if (!historyLoadGuardRef.current.isCurrent(loadId)) return
+      setMessages(history.length > 0 ? history : createWelcomeMessages())
+    } catch (error) {
+      if (!historyLoadGuardRef.current.isCurrent(loadId)) return
+      console.error('Loading chat history failed:', error)
+      setErrorMessage('選択した会話を読み込めませんでした。')
+      setMessages(createWelcomeMessages())
+    } finally {
+      if (historyLoadGuardRef.current.isCurrent(loadId)) setIsLoadingHistory(false)
+    }
+  }
+
+  async function handleResetConversation() {
+    if (isSending || isResetting || isLoadingHistory) return
+    if (!window.confirm('現在の会話内容を削除してリセットしますか？この操作は取り消せません。')) return
+
+    const resetSessionId = sessionId
+    setIsResetting(true)
+    setErrorMessage('')
+    try {
+      const result = await client.mutations.resetConversation({ sessionId: resetSessionId })
+      throwForErrors(result?.errors, '会話のリセットに失敗しました。')
+      const response = result?.data?.resetConversation ?? result?.data ?? result
+      if (!response?.success) throw new Error('会話のリセットに失敗しました。')
+
+      setSessions((current) => current.filter((session) => session.id !== resetSessionId))
+      historyLoadGuardRef.current.invalidate()
+      sessionListLoadGuardRef.current.invalidate()
+      setSessionId(crypto.randomUUID())
+      setMessages(createWelcomeMessages())
+      setPrompt('')
+    } catch (error) {
+      console.error('Resetting conversation failed:', error)
+      setErrorMessage(error instanceof Error && error.message
+        ? error.message
+        : '会話のリセットに失敗しました。')
+    } finally {
+      setIsResetting(false)
+    }
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
 
     const nextPrompt = prompt.trim()
+    if (!nextPrompt || isSending || isResetting || isLoadingHistory) return
 
-    if (!nextPrompt || isSending) {
-      return
-    }
-
+    const assistantId = crypto.randomUUID()
+    const requestId = crypto.randomUUID()
+    const requestedSessionId = sessionId
+    const now = new Date().toISOString()
     const userMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       text: nextPrompt,
+      timestamp: now,
     }
 
-    // Add the user message and a placeholder assistant message immediately.
-    const assistantId = crypto.randomUUID()
-    const requestId = crypto.randomUUID()
     setMessages((current) => [
       ...current,
       userMessage,
-      { id: assistantId, role: 'assistant', text: '', streaming: true },
+      { id: assistantId, role: 'assistant', text: '', timestamp: now, streaming: true },
     ])
+    setSessions((current) => {
+      const existing = current.find((session) => session.id === requestedSessionId)
+      const updated = existing
+        ? { ...existing, lastMessageAt: now }
+        : { id: requestedSessionId, title: createSessionTitle(nextPrompt), lastMessageAt: now }
+      return [updated, ...current.filter((session) => session.id !== requestedSessionId)]
+    })
     setPrompt('')
     setErrorMessage('')
     setIsSending(true)
 
-    // Subscribe to streaming chunks before sending the mutation so no
-    // early deltas are missed.
     const canSubscribe = typeof client?.subscriptions?.onChatChunk === 'function'
     let sub = null
 
     const orderedChunks = createOrderedChunkConsumer((chunk) => {
       if (chunk?.delta) {
         setMessages((current) =>
-          current.map((msg) =>
-            msg.id === assistantId
-              ? { ...msg, text: `${msg.text}${chunk.delta}` }
-              : msg,
+          current.map((message) =>
+            message.id === assistantId
+              ? { ...message, text: `${message.text}${chunk.delta}` }
+              : message,
           ),
         )
       }
       if (chunk?.done) {
         setMessages((current) =>
-          current.map((msg) =>
-            msg.id === assistantId ? { ...msg, streaming: false } : msg,
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  streaming: false,
+                  status: chunk.error ? 'failed' : 'complete',
+                  error: chunk.error ?? '',
+                }
+              : message,
           ),
         )
-        if (chunk?.error) {
-          setErrorMessage(chunk.error)
-        }
+        if (chunk?.error) setErrorMessage(chunk.error)
         setIsSending(false)
         sub?.unsubscribe()
+        void refreshSessions()
       }
     })
 
     if (canSubscribe) {
-      sub = client
-        .subscriptions.onChatChunk({ sessionId, requestId })
-        .subscribe({
-          next: (event) => {
-            const chunk = event?.data ?? event
-            orderedChunks.push(chunk)
-          },
-          error: (err) => {
-            console.error('Streaming subscription error:', err)
-            setErrorMessage('ストリーミングの購読中にエラーが発生しました。')
-            setIsSending(false)
-            setMessages((current) =>
-              current.map((msg) =>
-                msg.id === assistantId ? { ...msg, streaming: false } : msg,
-              ),
-            )
-            sub?.unsubscribe()
-          },
-        })
+      sub = client.subscriptions.onChatChunk({ sessionId: requestedSessionId, requestId }).subscribe({
+        next: (event) => orderedChunks.push(event?.data ?? event),
+        error: (error) => {
+          console.error('Streaming subscription error:', error)
+          setErrorMessage('ストリーミングの購読中にエラーが発生しました。')
+          setIsSending(false)
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId
+                ? {
+                    ...message,
+                    streaming: false,
+                    status: 'failed',
+                    error: 'ストリーミングの購読中にエラーが発生しました。',
+                  }
+                : message,
+            ),
+          )
+          sub?.unsubscribe()
+        },
+      })
     }
 
     try {
       const result = await client.mutations.chat({
         prompt: nextPrompt,
-        sessionId,
+        sessionId: requestedSessionId,
         requestId,
       })
 
-      if (Array.isArray(result?.errors) && result.errors.length > 0) {
-        const details = result.errors
-          .map((entry) => entry?.message)
-          .filter(Boolean)
-          .join(' / ')
-        throw new Error(details || 'チャット API がエラーを返しました。')
-      }
-
+      throwForErrors(result?.errors, 'チャット API がエラーを返しました。')
       const response = result?.data?.chat ?? result?.data ?? result
       const parsedReply = extractAssistantMessage(response?.reply)
       const isAsyncAck = response?.statusCode === 202 || parsedReply === ASYNC_ACK_REPLY
 
-      if (response?.sessionId) {
+      if (response?.sessionId && response.sessionId !== requestedSessionId) {
         setSessionId(response.sessionId)
       }
 
       if (parsedReply && (!canSubscribe || !isAsyncAck)) {
         setMessages((current) =>
-          current.map((msg) =>
-            msg.id === assistantId
-              ? {
-                  ...msg,
-                  text: parsedReply,
-                  streaming: false,
-                  traceId: response?.traceId,
-                }
-              : msg,
+          current.map((message) =>
+            message.id === assistantId
+              ? { ...message, text: parsedReply, streaming: false, traceId: response?.traceId }
+              : message,
           ),
         )
         setIsSending(false)
         sub?.unsubscribe()
+        void refreshSessions()
       }
     } catch (error) {
       const fallback = '現在エージェントに接続できません。数秒おいて再試行してください。'
       setErrorMessage(error instanceof Error ? error.message || fallback : fallback)
-      // Remove the empty placeholder if the request failed entirely.
-      setMessages((current) => current.filter((msg) => msg.id !== assistantId))
+      setMessages((current) => current.filter((message) => message.id !== assistantId))
       setIsSending(false)
       sub?.unsubscribe()
-    } finally {
-      // Do not unsubscribe here. Streaming should continue after ACK until done arrives.
+      void refreshSessions()
     }
   }
 
   function handleKeyDown(event) {
     const nativeEvent = event.nativeEvent
-    const isComposing =
-      isComposingRef.current || nativeEvent?.isComposing || nativeEvent?.keyCode === 229
-
-    if (isComposing) {
-      return
-    }
+    const isComposing = isComposingRef.current || nativeEvent?.isComposing || nativeEvent?.keyCode === 229
+    if (isComposing) return
 
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -215,107 +355,255 @@ function ChatWorkspace({ signOut, user }) {
     }
   }
 
-  function handleCompositionStart() {
-    isComposingRef.current = true
-  }
-
-  function handleCompositionEnd() {
-    isComposingRef.current = false
-  }
-
   const userLabel = user?.signInDetails?.loginId ?? user?.username ?? 'Signed-in user'
+  const messageGroups = groupMessagesByDay(messages)
 
   return (
     <main className="shell">
       <section className="hero-panel">
         <div>
           <h2>名古屋市バス案内チャット</h2>
-          <p className="hero-copy">
-            名古屋市営バスで指定した系統の時刻や運行情報を質問できます
-          </p>
+          <p className="hero-copy">名古屋市営バスで指定した系統の時刻や運行情報を質問できます</p>
         </div>
         <div className="hero-meta">
           <span className="pill">{userLabel}</span>
           <span className="pill pill--soft">session {sessionId.slice(0, 8)}</span>
-          <button className="ghost-button" type="button" onClick={() => signOut?.()}>
-            Sign out
-          </button>
+          <button className="ghost-button" type="button" onClick={() => signOut?.()}>Sign out</button>
         </div>
       </section>
 
-      <section className="chat-card" aria-busy={isSending}>
-        <header className="chat-card__header">
-          <div>
-            <h3>Chat</h3>
-          </div>
-        </header>
-
-        <div className="message-list" aria-live="polite">
-          {messages.map((message) => (
-            <article
-              key={message.id}
-              className={`message message--${message.role}`}
-            >
-              <p className="message__role">
-                {message.role === 'assistant' ? 'Agent' : 'You'}
-              </p>
-              {message.role === 'assistant' ? (
-                <div className="message__body message__body--markdown">
-                  {message.text ? (
-                    <Markdown remarkPlugins={[remarkGfm]}>
-                      {message.text + (message.streaming ? '\u258c' : '')}
-                    </Markdown>
-                  ) : message.streaming ? (
-                    <span className="streaming-cursor">{'\u258c'}</span>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="message__body">{message.text}</p>
-              )}
-              {message.traceId ? (
-                <p className="message__meta">trace {message.traceId}</p>
-              ) : null}
-            </article>
-          ))}
-
-          {isSending && !messages.some((m) => m.streaming) ? (
-            <article className="message message--assistant message--pending">
-              <p className="message__role">Agent</p>
-              <p className="message__body">応答を取得しています...</p>
-            </article>
-          ) : null}
-
-          <div ref={endRef} />
-        </div>
-
-        {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
-
-        <form className="composer" onSubmit={handleSubmit}>
-          <label className="sr-only" htmlFor="chat-prompt">
-            バスに関する質問
-          </label>
-          <textarea
-            id="chat-prompt"
-            className="composer__input"
-            rows="4"
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            onKeyDown={handleKeyDown}
-            onCompositionStart={handleCompositionStart}
-            onCompositionEnd={handleCompositionEnd}
-            placeholder="例: 栄から名古屋駅へ行くバスはありますか"
-            disabled={isSending}
-          />
-          <div className="composer__footer">
-            <p>Enter で送信、Shift + Enter で改行</p>
-            <button className="send-button" type="submit" disabled={isSending || !prompt.trim()}>
-              {isSending ? 'Sending...' : 'Send'}
+      <div className="workspace">
+        <aside className="session-panel" aria-label="会話履歴">
+          <div className="session-panel__header">
+            <h3>会話履歴</h3>
+            <button className="new-session-button" type="button" onClick={handleNewSession} disabled={isSending || isResetting || isLoadingHistory}>
+              新しい会話
             </button>
           </div>
-        </form>
-      </section>
+          <div className="session-list">
+            {sessions.length === 0 ? (
+              <p className="session-list__empty">保存された会話はまだありません。</p>
+            ) : sessions.map((session) => (
+              <button
+                key={session.id}
+                className={`session-item${session.id === sessionId ? ' session-item--active' : ''}`}
+                type="button"
+                onClick={() => void handleSelectSession(session.id)}
+                disabled={isSending || isResetting || isLoadingHistory}
+              >
+                <span className="session-item__title">{session.title}</span>
+                <span className="session-item__date">{formatSessionDate(session.lastMessageAt)}</span>
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <section className="chat-card" aria-busy={isSending || isResetting || isLoadingHistory}>
+          <header className="chat-card__header">
+            <h3>Chat</h3>
+            <button
+              className="reset-conversation-button"
+              type="button"
+              onClick={() => void handleResetConversation()}
+              disabled={isSending || isResetting || isLoadingHistory}
+            >
+              {isResetting ? 'リセット中...' : '会話をリセット'}
+            </button>
+          </header>
+
+          <div className="message-list" aria-live="polite">
+            {isLoadingHistory ? (
+              <p className="history-loading">会話履歴を読み込んでいます...</p>
+            ) : messageGroups.map((group) => (
+              <section className="message-day" key={group.key}>
+                {group.calendarDay ? (
+                  <time className="message-date-separator" dateTime={group.calendarDay}>
+                    {formatMessageDay(group.messages[0]?.timestamp)}
+                  </time>
+                ) : null}
+                {group.messages.map((message) => (
+                  <article key={message.id} className={`message message--${message.role}`}>
+                    <div className="message__bubble">
+                      <p className="message__role">{message.role === 'assistant' ? 'Agent' : 'You'}</p>
+                      {message.role === 'assistant' ? (
+                        <div className="message__body message__body--markdown">
+                          {message.text ? (
+                            <Markdown remarkPlugins={[remarkGfm]}>
+                              {message.text + (message.streaming ? '\u258c' : '')}
+                            </Markdown>
+                          ) : message.streaming ? <span className="streaming-cursor">{'\u258c'}</span> : null}
+                        </div>
+                      ) : <p className="message__body">{message.text}</p>}
+                      {message.status === 'failed' ? (
+                        <p className="message__error">
+                          回答が途中で終了しました{message.error ? `: ${message.error}` : '。'}
+                        </p>
+                      ) : null}
+                    </div>
+                    {message.timestamp || message.traceId ? (
+                      <p className="message__meta">
+                        {message.timestamp ? (
+                          <time dateTime={message.timestamp}>{formatMessageTime(message.timestamp)}</time>
+                        ) : null}
+                        {message.traceId ? <span>trace {message.traceId}</span> : null}
+                      </p>
+                    ) : null}
+                  </article>
+                ))}
+              </section>
+            ))}
+            <div ref={endRef} />
+          </div>
+
+          {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
+
+          <form className="composer" onSubmit={handleSubmit}>
+            <label className="sr-only" htmlFor="chat-prompt">バスに関する質問</label>
+            <textarea
+              id="chat-prompt"
+              className="composer__input"
+              rows="4"
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={handleKeyDown}
+              onCompositionStart={() => { isComposingRef.current = true }}
+              onCompositionEnd={() => { isComposingRef.current = false }}
+              placeholder="例: 栄から名古屋駅へ行くバスはありますか"
+              disabled={isSending || isResetting || isLoadingHistory}
+            />
+            <div className="composer__footer">
+              <p>Enter で送信、Shift + Enter で改行</p>
+              <button
+                className="send-button"
+                type="submit"
+                disabled={isSending || isResetting || isLoadingHistory || !prompt.trim()}
+              >
+                {isSending ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
     </main>
   )
+}
+
+async function listAllSessions(owner) {
+  if (!owner) throw new Error('ログインユーザーを特定できません。')
+  const sessions = []
+  let nextToken
+  const supportsOwnerIndex = typeof client.models.ChatSession.listChatSessionsByOwner === 'function'
+  do {
+    // During a coordinated schema rollout, amplify_outputs.json can briefly
+    // describe the previous backend. Keep history usable in that window; once
+    // the new output is present, every request uses the owner GSI Query.
+    const result = supportsOwnerIndex
+      ? await client.models.ChatSession.listChatSessionsByOwner(
+          { owner },
+          { sortDirection: 'DESC', limit: 100, nextToken },
+        )
+      : await client.models.ChatSession.list({ limit: 100, nextToken })
+    throwForErrors(result?.errors, '会話一覧の取得に失敗しました。')
+    sessions.push(...(result?.data ?? []).filter((session) => session.status !== 'reset'))
+    nextToken = result?.nextToken
+  } while (nextToken)
+
+  return sortSessionsByRecent(sessions)
+}
+
+async function listSessionMessages(sessionId) {
+  const messages = []
+  let nextToken
+  const supportsSessionIndex = typeof client.models.ChatMessage.listChatMessagesBySession === 'function'
+  do {
+    const result = supportsSessionIndex
+      ? await client.models.ChatMessage.listChatMessagesBySession(
+          { sessionId },
+          { sortDirection: 'ASC', limit: 100, nextToken },
+        )
+      : await client.models.ChatMessage.list({
+          filter: { sessionId: { eq: sessionId } },
+          limit: 100,
+          nextToken,
+        })
+    throwForErrors(result?.errors, '会話メッセージの取得に失敗しました。')
+    messages.push(...(result?.data ?? []))
+    nextToken = result?.nextToken
+  } while (nextToken)
+
+  return normalizeStoredMessages(messages)
+}
+
+function throwForErrors(errors, fallback) {
+  if (!Array.isArray(errors) || errors.length === 0) return
+  const detail = errors.map((entry) => entry?.message).filter(Boolean).join(' / ')
+  throw new Error(detail || fallback)
+}
+
+function formatSessionDate(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('ja-JP', {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  }).format(date)
+}
+
+function getCalendarDay(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  }).formatToParts(date)
+  const part = (type) => parts.find((entry) => entry.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function groupMessagesByDay(messages) {
+  const groups = []
+  for (const message of messages) {
+    const calendarDay = getCalendarDay(message.timestamp)
+    const previous = groups.at(-1)
+    if (previous && previous.calendarDay === calendarDay) {
+      previous.messages.push(message)
+    } else {
+      groups.push({
+        key: calendarDay || `undated-${message.id}`,
+        calendarDay,
+        messages: [message],
+      })
+    }
+  }
+  return groups
+}
+
+function formatMessageDay(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+    timeZone: 'Asia/Tokyo',
+  }).format(date)
+}
+
+function formatMessageTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('ja-JP', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  }).format(date)
 }
 
 function extractAssistantMessage(rawReply) {

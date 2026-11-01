@@ -90,23 +90,137 @@
 }
 
 .chat-card,
-.setup-card {
+.setup-card,
+.session-panel {
   border: 1px solid var(--panel-border);
   border-radius: 28px;
   background: var(--panel-bg);
   box-shadow: var(--panel-shadow);
 }
 
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.session-panel {
+  min-width: 0;
+  max-height: 72vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-panel__header {
+  padding: 20px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.session-panel__header h3,
+.chat-card__header h3 {
+  margin: 0;
+}
+
+.new-session-button {
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 14px;
+  background: var(--accent-strong);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.new-session-button:disabled,
+.session-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.session-list {
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.session-list__empty,
+.history-loading {
+  padding: 12px;
+  color: var(--muted-text);
+  font-size: 14px;
+}
+
+.session-item {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.session-item:hover,
+.session-item--active {
+  border-color: var(--assistant-border);
+  background: var(--assistant-bg);
+}
+
+.session-item__title {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item__date {
+  color: var(--meta-text);
+  font-size: 12px;
+}
+
 .chat-card {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   min-height: 72vh;
+  min-width: 0;
+  max-height: 72vh;
   overflow: hidden;
 }
 
 .chat-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   padding: 24px 28px;
   border-bottom: 1px solid var(--panel-border);
+}
+
+.reset-conversation-button {
+  padding: 8px 12px;
+  border: 1px solid var(--error-text);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--error-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reset-conversation-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .message-list {
@@ -117,8 +231,37 @@
   gap: 16px;
 }
 
+.message-day {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.message-date-separator {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  align-self: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--pill-bg-soft);
+  box-shadow: 0 2px 8px color-mix(in oklab, var(--panel-bg), #000 12%);
+  color: var(--muted-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   max-width: min(80%, 720px);
+}
+
+.message__bubble {
+  box-sizing: border-box;
+  max-width: 100%;
   padding: 16px 18px;
   border-radius: 22px;
   border: 1px solid transparent;
@@ -126,12 +269,19 @@
 
 .message--assistant {
   align-self: flex-start;
+}
+
+.message--assistant .message__bubble {
   background: var(--assistant-bg);
   border-color: var(--assistant-border);
 }
 
 .message--user {
   align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message--user .message__bubble {
   background: var(--user-bg);
   color: var(--user-text);
 }
@@ -167,6 +317,14 @@
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.message__error {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid currentColor;
+  color: var(--error-text);
+  font-size: 12px;
 }
 
 .message__body--markdown {
@@ -297,8 +455,13 @@
 }
 
 .message__meta {
-  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 6px 6px 0;
   color: var(--meta-text);
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .error-banner {
@@ -387,6 +550,18 @@
 
   .hero-meta {
     justify-content: flex-start;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .session-panel {
+    max-height: 280px;
+  }
+
+  .chat-card {
+    max-height: none;
   }
 
   .chat-card__header,

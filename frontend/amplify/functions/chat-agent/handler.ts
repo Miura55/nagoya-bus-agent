@@ -32,7 +32,8 @@ const lambdaClient = new LambdaClient({
 })
 
 const INVOKE_TIMEOUT_MS = 1_500_000
-const ASYNC_TASK_NAME = 'chat-stream-v1'
+const CHAT_TASK_NAME = 'chat-stream-v1'
+const RESET_TASK_NAME = 'chat-reset-v1'
 
 type ChatEvent = {
   fieldName?: string
@@ -49,11 +50,20 @@ type ChatEvent = {
 }
 
 type AsyncChatTaskEvent = {
-  task: typeof ASYNC_TASK_NAME
+  task: typeof CHAT_TASK_NAME
   prompt: string
   sessionId: string
   requestId: string
-  runtimeUserId?: string
+  runtimeUserId: string
+  startedAt: string
+  sessionGeneration: number
+}
+
+type AsyncResetTaskEvent = {
+  task: typeof RESET_TASK_NAME
+  sessionId: string
+  runtimeUserId: string
+  sessionGeneration: number
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +73,10 @@ type AsyncChatTaskEvent = {
 export const handler = async (event: unknown) => {
   if (isAsyncChatTaskEvent(event)) {
     await runAsyncChatTask(event)
+    return { accepted: true }
+  }
+  if (isAsyncResetTaskEvent(event)) {
+    await runAsyncResetTask(event)
     return { accepted: true }
   }
 
@@ -88,6 +102,28 @@ export const handler = async (event: unknown) => {
     return { reply: 'ok', sessionId: randomUUID(), statusCode: 200 }
   }
 
+  if (fieldName === 'resetConversation') {
+    const sessionId = chatEvent.arguments?.sessionId?.trim()
+    const runtimeUserId = extractRuntimeUserId(chatEvent.identity)
+    if (!sessionId) {
+      throw new Error('Session id must not be empty.')
+    }
+    if (!runtimeUserId) {
+      throw new Error('Authenticated user id is not available.')
+    }
+
+    const sessionGeneration = await markConversationReset(sessionId, runtimeUserId)
+    if (sessionGeneration !== undefined) {
+      await enqueueAsyncTaskWithRetry({
+        task: RESET_TASK_NAME,
+        sessionId,
+        runtimeUserId,
+        sessionGeneration,
+      })
+    }
+    return { sessionId, success: true }
+  }
+
   if (fieldName !== 'chat') {
     throw new Error(`Unsupported fieldName: ${String(fieldName)}`)
   }
@@ -105,14 +141,53 @@ export const handler = async (event: unknown) => {
   const runtimeSessionId = chatEvent.arguments?.sessionId?.trim() || randomUUID()
   const requestId = chatEvent.arguments?.requestId?.trim() || randomUUID()
   const runtimeUserId = extractRuntimeUserId(chatEvent.identity)
+  if (!runtimeUserId) {
+    throw new Error('Authenticated user id is not available.')
+  }
+  const startedAt = new Date().toISOString()
 
-  await enqueueAsyncChatTask({
-    task: ASYNC_TASK_NAME,
+  await retryPendingConversationCleanups(runtimeUserId)
+
+  const sessionGeneration = await ensureOwnedSession(runtimeSessionId, runtimeUserId, prompt, startedAt)
+  await persistMessage({
+    owner: runtimeUserId,
+    sessionId: runtimeSessionId,
+    requestId,
+    role: 'user',
+    content: prompt,
+    status: 'complete',
+    sessionGeneration,
+    orderKey: `${startedAt}#0#${requestId}`,
+  })
+
+  if (!await isCurrentSession(runtimeSessionId, runtimeUserId, sessionGeneration)) {
+    await deletePersistedMessage(requestId, 'user')
+    throw new Error('The conversation was reset before the message could be sent.')
+  }
+
+  const taskEvent: AsyncChatTaskEvent = {
+    task: CHAT_TASK_NAME,
     prompt,
     sessionId: runtimeSessionId,
     requestId,
     runtimeUserId,
-  })
+    startedAt,
+    sessionGeneration,
+  }
+  try {
+    await enqueueAsyncTask(taskEvent)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Starting the chat task failed.'
+    await persistAssistantMessageIfCurrent(
+      taskEvent,
+      '回答処理を開始できませんでした。',
+      'failed',
+      message,
+    ).catch((persistError: unknown) => {
+      console.warn('Persisting chat start failure failed:', persistError)
+    })
+    throw error
+  }
 
   return {
     reply: '処理を開始しました。回答を順次配信します。',
@@ -122,7 +197,7 @@ export const handler = async (event: unknown) => {
   }
 }
 
-async function enqueueAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
+async function enqueueAsyncTask(taskEvent: AsyncChatTaskEvent | AsyncResetTaskEvent): Promise<void> {
   const functionName = process.env.AWS_LAMBDA_FUNCTION_NAME
   if (!functionName) {
     throw new Error('AWS_LAMBDA_FUNCTION_NAME is not configured.')
@@ -137,9 +212,79 @@ async function enqueueAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void
   )
 }
 
+async function enqueueAsyncTaskWithRetry(
+  taskEvent: AsyncChatTaskEvent | AsyncResetTaskEvent,
+): Promise<void> {
+  const retryDelaysMs = [0, 100, 300]
+  let lastError: unknown
+  for (const delayMs of retryDelaysMs) {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
+    try {
+      await enqueueAsyncTask(taskEvent)
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
+}
+
+async function retryPendingConversationCleanups(owner: string): Promise<void> {
+  const pendingTasks: AsyncResetTaskEvent[] = []
+  let nextToken: string | null | undefined
+  do {
+    const result = await dataClient.models.ChatSession.listChatSessionsByOwner(
+      { owner },
+      {
+        filter: {
+          status: { eq: 'reset' },
+          cleanupStatus: { ne: 'complete' },
+        },
+        limit: 100,
+        nextToken,
+      },
+    )
+    assertNoDataErrors(result.errors, 'Loading pending conversation cleanups failed.')
+    for (const session of result.data ?? []) {
+      pendingTasks.push({
+        task: RESET_TASK_NAME,
+        sessionId: session.id,
+        runtimeUserId: owner,
+        sessionGeneration: normalizeSessionGeneration(session.generation),
+      })
+    }
+    nextToken = result.nextToken
+  } while (nextToken)
+
+  await Promise.all(pendingTasks.map((task) =>
+    enqueueAsyncTaskWithRetry(task).catch((error: unknown) => {
+      console.warn('Retrying pending conversation cleanup failed:', {
+        sessionId: task.sessionId,
+        error,
+      })
+    }),
+  ))
+}
+
 async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
   let nextSequence = 0
   let donePublished = false
+  const textChunks: string[] = []
+  if (!await isCurrentSession(
+    taskEvent.sessionId,
+    taskEvent.runtimeUserId,
+    taskEvent.sessionGeneration,
+  )) {
+    await publishChunkWithRetry(
+      taskEvent,
+      nextSequence,
+      undefined,
+      true,
+      'この会話はリセットされました。',
+    ).catch((error: unknown) => console.warn('publishChunk (reset session) failed:', error))
+    return
+  }
+
   const runtimeArn = process.env.AGENTCORE_RUNTIME_ARN
   if (!runtimeArn) {
     await publishChunkWithRetry(taskEvent, nextSequence, undefined, true, 'AGENTCORE_RUNTIME_ARN is not configured.').catch(
@@ -164,9 +309,9 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
           payload: new TextEncoder().encode(
             JSON.stringify({
               prompt: taskEvent.prompt,
-              // メモリを「ユーザー単位」で分離するため Cognito sub を actor_id として渡す。
-              // 未取得時はエージェント側で session_id にフォールバックする。
-              ...(taskEvent.runtimeUserId ? { actor_id: taskEvent.runtimeUserId } : {}),
+              // Cognito sub separates memory by user, while runtimeSessionId
+              // separates that user's individual conversations.
+              actor_id: taskEvent.runtimeUserId,
             }),
           ),
         }),
@@ -182,8 +327,6 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
 
     // Stream the response body, publishing each text delta to AppSync so the
     // frontend can render progressively.
-    const textChunks: string[] = []
-
     for await (const eventText of streamResponseEvents(response.response)) {
       if (!eventText) {
         continue
@@ -197,26 +340,370 @@ async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
       nextSequence += 1
     }
 
-    // The terminal event is sequenced after every delta. The subscriber waits
-    // for any earlier delayed events before applying it.
-    await publishChunkWithRetry(taskEvent, nextSequence, undefined, true)
-    donePublished = true
-
     const reply = textChunks.join('').trim()
-    if (!reply) {
+    if (reply) {
+      // Store the complete answer before publishing the terminal event. Once
+      // the UI sees done=true, a reload can therefore restore this response.
+      const persisted = await persistAssistantMessageIfCurrent(taskEvent, reply, 'complete')
+      if (!persisted) {
+        await publishChunkWithRetry(
+          taskEvent,
+          nextSequence,
+          undefined,
+          true,
+          'この会話はリセットされました。',
+        )
+        donePublished = true
+        return
+      }
+    } else {
       console.warn('Async chat task completed but produced empty reply.', {
         sessionId: taskEvent.sessionId,
       })
     }
+
+    // The terminal event is sequenced after every delta. The subscriber waits
+    // for any earlier delayed events before applying it.
+    await publishChunkWithRetry(taskEvent, nextSequence, undefined, true)
+    donePublished = true
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Chat stream failed.'
     console.error('Async chat task failed:', error)
+    const partialReply = textChunks.join('').trim()
+    await persistAssistantMessageIfCurrent(
+      taskEvent,
+      partialReply || '回答を取得できませんでした。',
+      'failed',
+      message,
+    ).catch((persistError: unknown) => {
+      console.warn('Persisting failed assistant response failed:', persistError)
+    })
     if (!donePublished) {
       await publishChunkWithRetry(taskEvent, nextSequence, undefined, true, message).catch((err: unknown) => {
         console.warn('publishChunk (error done) failed:', err)
       })
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Conversation persistence
+// ---------------------------------------------------------------------------
+
+type PersistedMessage = {
+  owner: string
+  sessionId: string
+  requestId: string
+  role: 'user' | 'assistant'
+  content: string
+  status: 'complete' | 'failed'
+  error?: string
+  sessionGeneration: number
+  orderKey: string
+}
+
+async function ensureOwnedSession(
+  sessionId: string,
+  owner: string,
+  firstPrompt: string,
+  now: string,
+): Promise<number> {
+  const existing = await dataClient.models.ChatSession.get({ id: sessionId })
+  assertNoDataErrors(existing.errors, 'Loading chat session failed.')
+
+  if (existing.data) {
+    if (existing.data.owner !== owner) {
+      throw new Error('The requested chat session does not belong to this user.')
+    }
+    if (existing.data.status === 'reset') {
+      throw new Error('The requested chat session has been reset.')
+    }
+    const generation = normalizeSessionGeneration(existing.data.generation)
+    const touched = await dataClient.models.ChatSession.update({
+      id: sessionId,
+      lastMessageAt: now,
+    })
+    assertNoDataErrors(touched.errors, 'Updating chat session failed.')
+    return generation
+  }
+
+  const generation = 1
+  const created = await dataClient.models.ChatSession.create({
+    id: sessionId,
+    owner,
+    title: createSessionTitle(firstPrompt),
+    lastMessageAt: now,
+    status: 'active',
+    generation,
+  })
+
+  if (created.errors?.length) {
+    // A concurrent first message may have created the same session. Re-read it
+    // and still enforce ownership rather than accepting the conflict blindly.
+    const raced = await dataClient.models.ChatSession.get({ id: sessionId })
+    assertNoDataErrors(raced.errors, 'Loading concurrently created chat session failed.')
+    if (!raced.data || raced.data.owner !== owner || raced.data.status === 'reset') {
+      assertNoDataErrors(created.errors, 'Creating chat session failed.')
+      throw new Error('Creating chat session failed.')
+    }
+    return normalizeSessionGeneration(raced.data.generation)
+  }
+
+  return generation
+}
+
+async function touchSessionIfCurrent(
+  sessionId: string,
+  owner: string,
+  generation: number,
+  now = new Date().toISOString(),
+): Promise<boolean> {
+  if (!await isCurrentSession(sessionId, owner, generation)) return false
+  const result = await dataClient.models.ChatSession.update({
+    id: sessionId,
+    lastMessageAt: now,
+  })
+  assertNoDataErrors(result.errors, 'Updating chat session failed.')
+  return true
+}
+
+async function persistMessage(message: PersistedMessage): Promise<void> {
+  const id = `${message.requestId}-${message.role}`
+  const result = await dataClient.models.ChatMessage.create({ id, ...message })
+  if (!result.errors?.length) return
+
+  // Lambda Event invocations can be retried. Deterministic ids make storing a
+  // repeated task idempotent while this check prevents accepting a collision.
+  const existing = await dataClient.models.ChatMessage.get({ id })
+  assertNoDataErrors(existing.errors, 'Loading persisted chat message failed.')
+  if (
+    existing.data?.owner === message.owner
+    && existing.data.sessionId === message.sessionId
+    && existing.data.requestId === message.requestId
+    && existing.data.role === message.role
+    && existing.data.sessionGeneration === message.sessionGeneration
+  ) {
+    if (
+      existing.data.status !== message.status
+      || existing.data.content !== message.content
+      || (existing.data.error ?? undefined) !== message.error
+    ) {
+      const updated = await dataClient.models.ChatMessage.update({
+        id,
+        content: message.content,
+        status: message.status,
+        error: message.error ?? null,
+        orderKey: message.orderKey,
+      })
+      assertNoDataErrors(updated.errors, 'Updating persisted chat message failed.')
+    }
+    return
+  }
+  assertNoDataErrors(result.errors, 'Persisting chat message failed.')
+  throw new Error('Persisting chat message failed.')
+}
+
+async function persistAssistantMessageIfCurrent(
+  taskEvent: AsyncChatTaskEvent,
+  content: string,
+  status: 'complete' | 'failed',
+  error?: string,
+): Promise<boolean> {
+  if (!await isCurrentSession(
+    taskEvent.sessionId,
+    taskEvent.runtimeUserId,
+    taskEvent.sessionGeneration,
+  )) return false
+
+  await persistMessage({
+    owner: taskEvent.runtimeUserId,
+    sessionId: taskEvent.sessionId,
+    requestId: taskEvent.requestId,
+    role: 'assistant',
+    content,
+    status,
+    error,
+    sessionGeneration: taskEvent.sessionGeneration,
+    orderKey: `${taskEvent.startedAt}#1#${taskEvent.requestId}`,
+  })
+
+  // This second check closes the window where reset happens after the first
+  // check but before the write. In that ordering, remove our own late write.
+  if (!await isCurrentSession(
+    taskEvent.sessionId,
+    taskEvent.runtimeUserId,
+    taskEvent.sessionGeneration,
+  )) {
+    await deletePersistedMessage(taskEvent.requestId, 'assistant')
+    return false
+  }
+
+  return touchSessionIfCurrent(
+    taskEvent.sessionId,
+    taskEvent.runtimeUserId,
+    taskEvent.sessionGeneration,
+  )
+}
+
+async function isCurrentSession(
+  sessionId: string,
+  owner: string,
+  generation: number,
+): Promise<boolean> {
+  const result = await dataClient.models.ChatSession.get({ id: sessionId })
+  assertNoDataErrors(result.errors, 'Loading chat session state failed.')
+  return Boolean(
+    result.data
+    && result.data.owner === owner
+    && result.data.status !== 'reset'
+    && normalizeSessionGeneration(result.data.generation) === generation,
+  )
+}
+
+async function markConversationReset(sessionId: string, owner: string): Promise<number | undefined> {
+  const session = await dataClient.models.ChatSession.get({ id: sessionId })
+  assertNoDataErrors(session.errors, 'Loading chat session for reset failed.')
+  if (!session.data) {
+    const generation = 1
+    const created = await dataClient.models.ChatSession.create({
+      id: sessionId,
+      owner,
+      title: 'リセット済みの会話',
+      lastMessageAt: new Date().toISOString(),
+      status: 'reset',
+      generation,
+      cleanupStatus: 'pending',
+    })
+    if (!created.errors?.length) return generation
+
+    // A first chat request may race with reset and create the session between
+    // our get and create. Re-read and transition that record to reset below.
+    const raced = await dataClient.models.ChatSession.get({ id: sessionId })
+    assertNoDataErrors(raced.errors, 'Loading concurrently created chat session failed.')
+    if (!raced.data || raced.data.owner !== owner) {
+      assertNoDataErrors(created.errors, 'Creating reset session tombstone failed.')
+      throw new Error('Creating reset session tombstone failed.')
+    }
+    const racedGeneration = raced.data.status === 'reset'
+      ? normalizeSessionGeneration(raced.data.generation)
+      : normalizeSessionGeneration(raced.data.generation) + 1
+    const resetRaced = await dataClient.models.ChatSession.update({
+      id: sessionId,
+      status: 'reset',
+      generation: racedGeneration,
+      cleanupStatus: 'pending',
+      lastMessageAt: new Date().toISOString(),
+    })
+    assertNoDataErrors(resetRaced.errors, 'Marking concurrently created session as reset failed.')
+    return racedGeneration
+  }
+  if (session.data.owner !== owner) {
+    throw new Error('The requested chat session does not belong to this user.')
+  }
+
+  const generation = session.data.status === 'reset'
+    ? normalizeSessionGeneration(session.data.generation)
+    : normalizeSessionGeneration(session.data.generation) + 1
+  const updated = await dataClient.models.ChatSession.update({
+    id: sessionId,
+    status: 'reset',
+    generation,
+    cleanupStatus: 'pending',
+    lastMessageAt: new Date().toISOString(),
+  })
+  assertNoDataErrors(updated.errors, 'Marking chat session as reset failed.')
+  return generation
+}
+
+async function runAsyncResetTask(taskEvent: AsyncResetTaskEvent): Promise<void> {
+  const session = await dataClient.models.ChatSession.get({ id: taskEvent.sessionId })
+  assertNoDataErrors(session.errors, 'Loading chat session for cleanup failed.')
+  if (
+    !session.data
+    || session.data.owner !== taskEvent.runtimeUserId
+    || session.data.status !== 'reset'
+    || normalizeSessionGeneration(session.data.generation) !== taskEvent.sessionGeneration
+  ) return
+
+  let consecutiveEmptyPasses = 0
+  for (let pass = 0; pass < 8; pass += 1) {
+    const deletedCount = await deleteConversationMessagesPass(taskEvent)
+    consecutiveEmptyPasses = deletedCount === 0 ? consecutiveEmptyPasses + 1 : 0
+    if (consecutiveEmptyPasses >= 5) {
+      const completed = await dataClient.models.ChatSession.update({
+        id: taskEvent.sessionId,
+        cleanupStatus: 'complete',
+      })
+      assertNoDataErrors(completed.errors, 'Completing conversation cleanup failed.')
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** pass)))
+  }
+
+  // Throwing lets Lambda's asynchronous invocation retry policy run this task
+  // again. The pending tombstone also allows a future chat request to requeue it.
+  throw new Error('Conversation cleanup did not reach five consecutive empty passes.')
+}
+
+async function deleteConversationMessagesPass(
+  taskEvent: AsyncResetTaskEvent,
+): Promise<number> {
+  let deletedCount = 0
+  let nextToken: string | null | undefined
+  do {
+    const result = await dataClient.models.ChatMessage.listChatMessagesBySession(
+      { sessionId: taskEvent.sessionId },
+      {
+        sortDirection: 'ASC',
+        limit: 100,
+        nextToken,
+      },
+    )
+    assertNoDataErrors(result.errors, 'Loading chat messages for cleanup failed.')
+    const messages = result.data ?? []
+    deletedCount += messages.length
+    if (messages.some((message) => message.owner !== taskEvent.runtimeUserId)) {
+      throw new Error('The requested chat session contains messages owned by another user.')
+    }
+
+    for (let offset = 0; offset < messages.length; offset += 20) {
+      const batch = messages.slice(offset, offset + 20)
+      await Promise.all(batch.map(async (message) => {
+        const deleted = await dataClient.models.ChatMessage.delete({ id: message.id })
+        assertNoDataErrors(deleted.errors, 'Deleting chat message failed.')
+      }))
+    }
+    nextToken = result.nextToken
+  } while (nextToken)
+  return deletedCount
+}
+
+async function deletePersistedMessage(
+  requestId: string,
+  role: 'user' | 'assistant',
+): Promise<void> {
+  const deleted = await dataClient.models.ChatMessage.delete({
+    id: `${requestId}-${role}`,
+  })
+  assertNoDataErrors(deleted.errors, 'Deleting stale chat message failed.')
+}
+
+function normalizeSessionGeneration(value: number | null | undefined): number {
+  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : 1
+}
+
+function createSessionTitle(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, ' ').trim()
+  return normalized.length > 40 ? `${normalized.slice(0, 40)}…` : normalized
+}
+
+function assertNoDataErrors(
+  errors: ReadonlyArray<{ message?: string | null } | null | undefined> | undefined,
+  fallback: string,
+): void {
+  if (!errors?.length) return
+  const detail = errors.map((error) => error?.message).filter(Boolean).join(' / ')
+  throw new Error(detail || fallback)
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +891,11 @@ function extractRuntimeUserId(identity: unknown): string | undefined {
   if (!identity || typeof identity !== 'object') return undefined
   if ('sub' in identity && typeof identity.sub === 'string') return identity.sub
   if ('username' in identity && typeof identity.username === 'string') return identity.username
+  if ('claims' in identity && identity.claims && typeof identity.claims === 'object') {
+    const claims = identity.claims as Record<string, unknown>
+    if (typeof claims.sub === 'string') return claims.sub
+    if (typeof claims['cognito:username'] === 'string') return claims['cognito:username']
+  }
   return undefined
 }
 
@@ -411,11 +903,24 @@ function isAsyncChatTaskEvent(value: unknown): value is AsyncChatTaskEvent {
   if (!value || typeof value !== 'object') return false
   const record = value as Record<string, unknown>
   return (
-    record.task === ASYNC_TASK_NAME
+    record.task === CHAT_TASK_NAME
     && typeof record.prompt === 'string'
     && typeof record.sessionId === 'string'
     && typeof record.requestId === 'string'
-    && (typeof record.runtimeUserId === 'string' || typeof record.runtimeUserId === 'undefined')
+    && typeof record.runtimeUserId === 'string'
+    && typeof record.startedAt === 'string'
+    && typeof record.sessionGeneration === 'number'
+  )
+}
+
+function isAsyncResetTaskEvent(value: unknown): value is AsyncResetTaskEvent {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return (
+    record.task === RESET_TASK_NAME
+    && typeof record.sessionId === 'string'
+    && typeof record.runtimeUserId === 'string'
+    && typeof record.sessionGeneration === 'number'
   )
 }
 

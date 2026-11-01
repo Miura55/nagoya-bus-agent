@@ -2,12 +2,61 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 import { chatAgent } from '../functions/chat-agent/resource';
 
 const schema = a.schema({
+  /**
+   * A user-visible conversation. The model id is also used as AgentCore's
+   * runtimeSessionId, so selecting a record restores the matching memory.
+   */
+  ChatSession: a
+    .model({
+      owner: a.string().required(),
+      title: a.string().required(),
+      lastMessageAt: a.datetime().required(),
+      // A reset session remains as a tombstone so stale tabs cannot recreate
+      // the same AgentCore runtimeSessionId and recover its old memory.
+      status: a.enum(['active', 'reset']),
+      generation: a.integer(),
+      cleanupStatus: a.enum(['pending', 'complete']),
+    })
+    .secondaryIndexes((index) => [
+      index('owner')
+        .sortKeys(['lastMessageAt'])
+        .queryField('listChatSessionsByOwner'),
+    ])
+    .authorization((allow) => [
+      allow.ownerDefinedIn('owner').identityClaim('sub').to(['read']),
+    ]),
+  /** Display history persisted independently from AgentCore Memory. */
+  ChatMessage: a
+    .model({
+      owner: a.string().required(),
+      sessionId: a.string().required(),
+      requestId: a.string().required(),
+      role: a.enum(['user', 'assistant']),
+      content: a.string().required(),
+      status: a.enum(['complete', 'failed']),
+      error: a.string(),
+      sessionGeneration: a.integer(),
+      // Stable chronological key shared by the user/assistant pair.
+      orderKey: a.string().required(),
+    })
+    .secondaryIndexes((index) => [
+      index('sessionId')
+        .sortKeys(['orderKey'])
+        .queryField('listChatMessagesBySession'),
+    ])
+    .authorization((allow) => [
+      allow.ownerDefinedIn('owner').identityClaim('sub').to(['read']),
+    ]),
   ChatResponse: a.customType({
     reply: a.string().required(),
     sessionId: a.string().required(),
     requestId: a.string(),
     traceId: a.string(),
     statusCode: a.integer(),
+  }),
+  ResetConversationResponse: a.customType({
+    sessionId: a.string().required(),
+    success: a.boolean().required(),
   }),
   /** Individual text delta published by the Lambda during streaming. */
   ChatChunk: a.customType({
@@ -31,6 +80,19 @@ const schema = a.schema({
       requestId: a.string(),
     })
     .returns(a.ref('ChatResponse'))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(chatAgent)),
+  /**
+   * Delete the signed-in user's persisted display history for one conversation.
+   * The client switches to a new runtimeSessionId after this succeeds, so the
+   * deleted conversation's AgentCore Memory is no longer referenced either.
+   */
+  resetConversation: a
+    .mutation()
+    .arguments({
+      sessionId: a.string().required(),
+    })
+    .returns(a.ref('ResetConversationResponse'))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(chatAgent)),
   /**
@@ -71,7 +133,9 @@ const schema = a.schema({
 });
 
 const schemaWithResourceAccess = schema.authorization((allow) => [
-  allow.resource(chatAgent).to(['mutate']),
+  // The orchestration Lambda validates the Cognito owner before using this
+  // service-level access to persist messages.
+  allow.resource(chatAgent).to(['query', 'mutate']),
 ]);
 
 export type Schema = ClientSchema<typeof schemaWithResourceAccess>;
