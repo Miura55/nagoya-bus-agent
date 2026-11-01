@@ -18,15 +18,16 @@ test('sessions are sorted by most recent message without mutating input', () => 
 })
 
 test('stored messages are de-duplicated and restored in turn order', () => {
+  const timestamp = '2026-11-01T05:30:00.000Z'
   const messages = [
-    { id: 'answer', role: 'assistant', content: 'A', orderKey: 'time#1#request' },
-    { id: 'question', role: 'user', content: 'Q', orderKey: 'time#0#request' },
-    { id: 'answer', role: 'assistant', content: 'A', orderKey: 'time#1#request' },
+    { id: 'answer', role: 'assistant', content: 'A', orderKey: `${timestamp}#1#request` },
+    { id: 'question', role: 'user', content: 'Q', orderKey: `${timestamp}#0#request` },
+    { id: 'answer', role: 'assistant', content: 'A', orderKey: `${timestamp}#1#request` },
   ]
 
   assert.deepEqual(normalizeStoredMessages(messages), [
-    { id: 'question', role: 'user', text: 'Q' },
-    { id: 'answer', role: 'assistant', text: 'A' },
+    { id: 'question', role: 'user', text: 'Q', timestamp },
+    { id: 'answer', role: 'assistant', text: 'A', timestamp },
   ])
 })
 

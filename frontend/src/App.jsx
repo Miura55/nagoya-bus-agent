@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Authenticator } from '@aws-amplify/ui-react'
 import { generateClient } from 'aws-amplify/data'
 import Markdown from 'react-markdown'
@@ -16,7 +16,12 @@ const ASYNC_ACK_REPLY = '処理を開始しました。回答を順次配信し�
 const WELCOME_TEXT = '名古屋市営バスについて、路線、行き先、最寄りの停留所などを質問してください。'
 
 function createWelcomeMessages() {
-  return [{ id: crypto.randomUUID(), role: 'assistant', text: WELCOME_TEXT }]
+  return [{
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    text: WELCOME_TEXT,
+    timestamp: new Date().toISOString(),
+  }]
 }
 
 function App({ configError }) {
@@ -189,16 +194,21 @@ function ChatWorkspace({ signOut, user }) {
     const nextPrompt = prompt.trim()
     if (!nextPrompt || isSending || isResetting || isLoadingHistory) return
 
-    const userMessage = { id: crypto.randomUUID(), role: 'user', text: nextPrompt }
     const assistantId = crypto.randomUUID()
     const requestId = crypto.randomUUID()
     const requestedSessionId = sessionId
     const now = new Date().toISOString()
+    const userMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      text: nextPrompt,
+      timestamp: now,
+    }
 
     setMessages((current) => [
       ...current,
       userMessage,
-      { id: assistantId, role: 'assistant', text: '', streaming: true },
+      { id: assistantId, role: 'assistant', text: '', timestamp: now, streaming: true },
     ])
     setSessions((current) => {
       const existing = current.find((session) => session.id === requestedSessionId)
@@ -361,21 +371,43 @@ function ChatWorkspace({ signOut, user }) {
           <div className="message-list" aria-live="polite">
             {isLoadingHistory ? (
               <p className="history-loading">会話履歴を読み込んでいます...</p>
-            ) : messages.map((message) => (
-              <article key={message.id} className={`message message--${message.role}`}>
-                <p className="message__role">{message.role === 'assistant' ? 'Agent' : 'You'}</p>
-                {message.role === 'assistant' ? (
-                  <div className="message__body message__body--markdown">
-                    {message.text ? (
-                      <Markdown remarkPlugins={[remarkGfm]}>
-                        {message.text + (message.streaming ? '\u258c' : '')}
-                      </Markdown>
-                    ) : message.streaming ? <span className="streaming-cursor">{'\u258c'}</span> : null}
-                  </div>
-                ) : <p className="message__body">{message.text}</p>}
-                {message.traceId ? <p className="message__meta">trace {message.traceId}</p> : null}
-              </article>
-            ))}
+            ) : messages.map((message, index) => {
+              const calendarDay = getCalendarDay(message.timestamp)
+              const previousCalendarDay = getCalendarDay(messages[index - 1]?.timestamp)
+              const showDateSeparator = calendarDay && calendarDay !== previousCalendarDay
+
+              return (
+                <Fragment key={message.id}>
+                  {showDateSeparator ? (
+                    <time className="message-date-separator" dateTime={calendarDay}>
+                      {formatMessageDay(message.timestamp)}
+                    </time>
+                  ) : null}
+                  <article className={`message message--${message.role}`}>
+                    <div className="message__bubble">
+                      <p className="message__role">{message.role === 'assistant' ? 'Agent' : 'You'}</p>
+                      {message.role === 'assistant' ? (
+                        <div className="message__body message__body--markdown">
+                          {message.text ? (
+                            <Markdown remarkPlugins={[remarkGfm]}>
+                              {message.text + (message.streaming ? '\u258c' : '')}
+                            </Markdown>
+                          ) : message.streaming ? <span className="streaming-cursor">{'\u258c'}</span> : null}
+                        </div>
+                      ) : <p className="message__body">{message.text}</p>}
+                    </div>
+                    {message.timestamp || message.traceId ? (
+                      <p className="message__meta">
+                        {message.timestamp ? (
+                          <time dateTime={message.timestamp}>{formatMessageTime(message.timestamp)}</time>
+                        ) : null}
+                        {message.traceId ? <span>trace {message.traceId}</span> : null}
+                      </p>
+                    ) : null}
+                  </article>
+                </Fragment>
+              )
+            })}
             <div ref={endRef} />
           </div>
 
@@ -454,6 +486,45 @@ function formatSessionDate(value) {
   if (Number.isNaN(date.getTime())) return ''
   return new Intl.DateTimeFormat('ja-JP', {
     month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  }).format(date)
+}
+
+function getCalendarDay(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  }).formatToParts(date)
+  const part = (type) => parts.find((entry) => entry.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function formatMessageDay(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+    timeZone: 'Asia/Tokyo',
+  }).format(date)
+}
+
+function formatMessageTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('ja-JP', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Tokyo',
   }).format(date)
 }
 

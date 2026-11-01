@@ -12,7 +12,12 @@ export function normalizeStoredMessages(messages) {
 
   return [...messagesById.values()]
     .sort((left, right) => left.orderKey.localeCompare(right.orderKey))
-    .map((message) => ({ id: message.id, role: message.role, text: message.content }))
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.content,
+      timestamp: message.orderKey.split('#', 1)[0] || message.createdAt,
+    }))
 }
 
 export function createSessionTitle(prompt) {

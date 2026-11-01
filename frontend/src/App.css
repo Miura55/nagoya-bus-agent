@@ -231,8 +231,26 @@
   gap: 16px;
 }
 
+.message-date-separator {
+  align-self: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--pill-bg-soft);
+  color: var(--muted-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   max-width: min(80%, 720px);
+}
+
+.message__bubble {
+  box-sizing: border-box;
+  max-width: 100%;
   padding: 16px 18px;
   border-radius: 22px;
   border: 1px solid transparent;
@@ -240,12 +258,19 @@
 
 .message--assistant {
   align-self: flex-start;
+}
+
+.message--assistant .message__bubble {
   background: var(--assistant-bg);
   border-color: var(--assistant-border);
 }
 
 .message--user {
   align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message--user .message__bubble {
   background: var(--user-bg);
   color: var(--user-text);
 }
@@ -411,8 +436,13 @@
 }
 
 .message__meta {
-  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 6px 6px 0;
   color: var(--meta-text);
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .error-banner {
