@@ -232,10 +232,14 @@
 }
 
 .message-date-separator {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   align-self: center;
   padding: 5px 12px;
   border-radius: 999px;
   background: var(--pill-bg-soft);
+  box-shadow: 0 2px 8px color-mix(in oklab, var(--panel-bg), #000 12%);
   color: var(--muted-text);
   font-size: 12px;
   font-weight: 650;
