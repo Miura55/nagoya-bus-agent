@@ -114,15 +114,11 @@ export const handler = async (event: unknown) => {
 
     const sessionGeneration = await markConversationReset(sessionId, runtimeUserId)
     if (sessionGeneration !== undefined) {
-      await enqueueAsyncTask({
+      await enqueueAsyncTaskWithRetry({
         task: RESET_TASK_NAME,
         sessionId,
         runtimeUserId,
         sessionGeneration,
-      }).catch((error: unknown) => {
-        // The session is already unusable at this point, so returning success
-        // is safer than letting the client continue posting to a reset id.
-        console.warn('Enqueuing asynchronous conversation cleanup failed:', error)
       })
     }
     return { sessionId, success: true }
@@ -149,6 +145,8 @@ export const handler = async (event: unknown) => {
     throw new Error('Authenticated user id is not available.')
   }
   const startedAt = new Date().toISOString()
+
+  await retryPendingConversationCleanups(runtimeUserId)
 
   const sessionGeneration = await ensureOwnedSession(runtimeSessionId, runtimeUserId, prompt, startedAt)
   await persistMessage({
@@ -212,6 +210,60 @@ async function enqueueAsyncTask(taskEvent: AsyncChatTaskEvent | AsyncResetTaskEv
       Payload: new TextEncoder().encode(JSON.stringify(taskEvent)),
     }),
   )
+}
+
+async function enqueueAsyncTaskWithRetry(
+  taskEvent: AsyncChatTaskEvent | AsyncResetTaskEvent,
+): Promise<void> {
+  const retryDelaysMs = [0, 100, 300]
+  let lastError: unknown
+  for (const delayMs of retryDelaysMs) {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
+    try {
+      await enqueueAsyncTask(taskEvent)
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
+}
+
+async function retryPendingConversationCleanups(owner: string): Promise<void> {
+  const pendingTasks: AsyncResetTaskEvent[] = []
+  let nextToken: string | null | undefined
+  do {
+    const result = await dataClient.models.ChatSession.listChatSessionsByOwner(
+      { owner },
+      {
+        filter: {
+          status: { eq: 'reset' },
+          cleanupStatus: { ne: 'complete' },
+        },
+        limit: 100,
+        nextToken,
+      },
+    )
+    assertNoDataErrors(result.errors, 'Loading pending conversation cleanups failed.')
+    for (const session of result.data ?? []) {
+      pendingTasks.push({
+        task: RESET_TASK_NAME,
+        sessionId: session.id,
+        runtimeUserId: owner,
+        sessionGeneration: normalizeSessionGeneration(session.generation),
+      })
+    }
+    nextToken = result.nextToken
+  } while (nextToken)
+
+  await Promise.all(pendingTasks.map((task) =>
+    enqueueAsyncTaskWithRetry(task).catch((error: unknown) => {
+      console.warn('Retrying pending conversation cleanup failed:', {
+        sessionId: task.sessionId,
+        error,
+      })
+    }),
+  ))
 }
 
 async function runAsyncChatTask(taskEvent: AsyncChatTaskEvent): Promise<void> {
@@ -520,6 +572,7 @@ async function markConversationReset(sessionId: string, owner: string): Promise<
       lastMessageAt: new Date().toISOString(),
       status: 'reset',
       generation,
+      cleanupStatus: 'pending',
     })
     if (!created.errors?.length) return generation
 
@@ -538,6 +591,7 @@ async function markConversationReset(sessionId: string, owner: string): Promise<
       id: sessionId,
       status: 'reset',
       generation: racedGeneration,
+      cleanupStatus: 'pending',
       lastMessageAt: new Date().toISOString(),
     })
     assertNoDataErrors(resetRaced.errors, 'Marking concurrently created session as reset failed.')
@@ -554,6 +608,7 @@ async function markConversationReset(sessionId: string, owner: string): Promise<
     id: sessionId,
     status: 'reset',
     generation,
+    cleanupStatus: 'pending',
     lastMessageAt: new Date().toISOString(),
   })
   assertNoDataErrors(updated.errors, 'Marking chat session as reset failed.')
@@ -570,6 +625,30 @@ async function runAsyncResetTask(taskEvent: AsyncResetTaskEvent): Promise<void> 
     || normalizeSessionGeneration(session.data.generation) !== taskEvent.sessionGeneration
   ) return
 
+  let consecutiveEmptyPasses = 0
+  for (let pass = 0; pass < 8; pass += 1) {
+    const deletedCount = await deleteConversationMessagesPass(taskEvent)
+    consecutiveEmptyPasses = deletedCount === 0 ? consecutiveEmptyPasses + 1 : 0
+    if (consecutiveEmptyPasses >= 5) {
+      const completed = await dataClient.models.ChatSession.update({
+        id: taskEvent.sessionId,
+        cleanupStatus: 'complete',
+      })
+      assertNoDataErrors(completed.errors, 'Completing conversation cleanup failed.')
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** pass)))
+  }
+
+  // Throwing lets Lambda's asynchronous invocation retry policy run this task
+  // again. The pending tombstone also allows a future chat request to requeue it.
+  throw new Error('Conversation cleanup did not reach five consecutive empty passes.')
+}
+
+async function deleteConversationMessagesPass(
+  taskEvent: AsyncResetTaskEvent,
+): Promise<number> {
+  let deletedCount = 0
   let nextToken: string | null | undefined
   do {
     const result = await dataClient.models.ChatMessage.listChatMessagesBySession(
@@ -582,6 +661,7 @@ async function runAsyncResetTask(taskEvent: AsyncResetTaskEvent): Promise<void> 
     )
     assertNoDataErrors(result.errors, 'Loading chat messages for cleanup failed.')
     const messages = result.data ?? []
+    deletedCount += messages.length
     if (messages.some((message) => message.owner !== taskEvent.runtimeUserId)) {
       throw new Error('The requested chat session contains messages owned by another user.')
     }
@@ -595,6 +675,7 @@ async function runAsyncResetTask(taskEvent: AsyncResetTaskEvent): Promise<void> 
     }
     nextToken = result.nextToken
   } while (nextToken)
+  return deletedCount
 }
 
 async function deletePersistedMessage(

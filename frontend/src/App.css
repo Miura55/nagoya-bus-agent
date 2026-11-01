@@ -231,6 +231,13 @@
   gap: 16px;
 }
 
+.message-day {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
 .message-date-separator {
   position: sticky;
   top: 0;

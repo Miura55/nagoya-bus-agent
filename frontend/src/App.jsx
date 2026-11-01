@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Authenticator } from '@aws-amplify/ui-react'
 import { generateClient } from 'aws-amplify/data'
 import Markdown from 'react-markdown'
@@ -68,6 +68,7 @@ function ChatWorkspace({ signOut, user }) {
   const endRef = useRef(null)
   const isComposingRef = useRef(false)
   const historyLoadGuardRef = useRef(createHistoryLoadGuard())
+  const sessionListLoadGuardRef = useRef(createHistoryLoadGuard())
 
   useEffect(() => {
     let cancelled = false
@@ -95,6 +96,8 @@ function ChatWorkspace({ signOut, user }) {
           if (savedSessionState?.data?.status === 'reset') {
             savedSessionId = ''
             savedSession = undefined
+          } else if (savedSessionState?.data) {
+            savedSession = savedSessionState.data
           }
         }
         // Keep the pre-database local session id when present. Its old display
@@ -143,8 +146,12 @@ function ChatWorkspace({ signOut, user }) {
   }, [isLoadingHistory, sessionId, sessionStorageKey])
 
   async function refreshSessions() {
+    const loadId = sessionListLoadGuardRef.current.start()
     try {
-      setSessions(await listAllSessions(runtimeUserId))
+      const refreshedSessions = await listAllSessions(runtimeUserId)
+      if (sessionListLoadGuardRef.current.isCurrent(loadId)) {
+        setSessions(refreshedSessions)
+      }
     } catch (error) {
       console.error('Refreshing sessions failed:', error)
     }
@@ -195,6 +202,7 @@ function ChatWorkspace({ signOut, user }) {
 
       setSessions((current) => current.filter((session) => session.id !== resetSessionId))
       historyLoadGuardRef.current.invalidate()
+      sessionListLoadGuardRef.current.invalidate()
       setSessionId(crypto.randomUUID())
       setMessages(createWelcomeMessages())
       setPrompt('')
@@ -348,6 +356,7 @@ function ChatWorkspace({ signOut, user }) {
   }
 
   const userLabel = user?.signInDetails?.loginId ?? user?.username ?? 'Signed-in user'
+  const messageGroups = groupMessagesByDay(messages)
 
   return (
     <main className="shell">
@@ -405,19 +414,15 @@ function ChatWorkspace({ signOut, user }) {
           <div className="message-list" aria-live="polite">
             {isLoadingHistory ? (
               <p className="history-loading">会話履歴を読み込んでいます...</p>
-            ) : messages.map((message, index) => {
-              const calendarDay = getCalendarDay(message.timestamp)
-              const previousCalendarDay = getCalendarDay(messages[index - 1]?.timestamp)
-              const showDateSeparator = calendarDay && calendarDay !== previousCalendarDay
-
-              return (
-                <Fragment key={message.id}>
-                  {showDateSeparator ? (
-                    <time className="message-date-separator" dateTime={calendarDay}>
-                      {formatMessageDay(message.timestamp)}
-                    </time>
-                  ) : null}
-                  <article className={`message message--${message.role}`}>
+            ) : messageGroups.map((group) => (
+              <section className="message-day" key={group.key}>
+                {group.calendarDay ? (
+                  <time className="message-date-separator" dateTime={group.calendarDay}>
+                    {formatMessageDay(group.messages[0]?.timestamp)}
+                  </time>
+                ) : null}
+                {group.messages.map((message) => (
+                  <article key={message.id} className={`message message--${message.role}`}>
                     <div className="message__bubble">
                       <p className="message__role">{message.role === 'assistant' ? 'Agent' : 'You'}</p>
                       {message.role === 'assistant' ? (
@@ -444,9 +449,9 @@ function ChatWorkspace({ signOut, user }) {
                       </p>
                     ) : null}
                   </article>
-                </Fragment>
-              )
-            })}
+                ))}
+              </section>
+            ))}
             <div ref={endRef} />
           </div>
 
@@ -557,6 +562,24 @@ function getCalendarDay(value) {
   }).formatToParts(date)
   const part = (type) => parts.find((entry) => entry.type === type)?.value ?? ''
   return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function groupMessagesByDay(messages) {
+  const groups = []
+  for (const message of messages) {
+    const calendarDay = getCalendarDay(message.timestamp)
+    const previous = groups.at(-1)
+    if (previous && previous.calendarDay === calendarDay) {
+      previous.messages.push(message)
+    } else {
+      groups.push({
+        key: calendarDay || `undated-${message.id}`,
+        calendarDay,
+        messages: [message],
+      })
+    }
+  }
+  return groups
 }
 
 function formatMessageDay(value) {

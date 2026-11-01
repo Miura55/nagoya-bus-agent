@@ -15,6 +15,7 @@ const schema = a.schema({
       // the same AgentCore runtimeSessionId and recover its old memory.
       status: a.enum(['active', 'reset']),
       generation: a.integer(),
+      cleanupStatus: a.enum(['pending', 'complete']),
     })
     .secondaryIndexes((index) => [
       index('owner')
